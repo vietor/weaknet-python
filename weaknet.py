@@ -686,6 +686,7 @@ class TCPServiceSocket(object):
             self._service.handle_read(self, data)
         except Exception as e:
             logging.error("data handle: %s", e)
+            traceback.print_exc(e)
             self._service.terminate()
             return
 
@@ -859,8 +860,16 @@ class RemoteService(TCPService):
             return
 
         if ssock == self._source:
-            size = len(data)
             if self._step == STEP_INIT:
+                size = len(data)
+                if size < 3 or data[0] != 'G' or data[1] != 'E' or data[2] != 'T':
+                    raise Exception("http header")
+                raw = data.find("\r\n\r\n")
+                if raw < 0 or raw + 4 >=size:
+                    raise Exception("http package")
+                data = data[raw + 4:]
+                size = size - raw - 4
+
                 if size < 7 or ord(data[0]) != 0x05:
                     raise Exception("socks5 header")
 
@@ -1024,7 +1033,11 @@ class LocalService(TCPService):
         if success:
             self._connect_error()
         else:
-            self._target.send(self._socks5_request)
+            data = bytearray("GET / HTTP 1.1" +
+                             "\r\nHost: " + self._remote_addr +
+                             "\r\nAccept: */*" +
+                             "\r\n\r\n")
+            self._target.send(data + self._socks5_request)
             self._step = STEP_RELAYING
             self._target.set_status(STATUS_READ)
 
