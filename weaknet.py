@@ -295,7 +295,8 @@ QCLASS_IN = 1
 STEP_INIT = 0
 STEP_ADDRESS = 1
 STEP_CONNECT = 2
-STEP_TRANSPORT = 3
+STEP_RELAYING = 3
+STEP_TRANSPORT = 4
 STEP_TERMINATE = -1
 
 STATUS_INIT = 0
@@ -459,7 +460,6 @@ def dns_parse_response(data):
             response.answers.append((an[1], an[2], an[3]))
         return response
     except Exception as e:
-        print e
         return None
 
 
@@ -709,7 +709,7 @@ class TCPServiceSocket(object):
 
 class TCPService(object):
 
-    def __init__(self, controller, conn):
+    def __init__(self, controller, conn, options):
         self._controller = controller
         self._step = STEP_INIT
         self._controller._services[id(self)] = self
@@ -820,13 +820,12 @@ class TCPController(object):
             raise Exception('event error')
         try:
             conn = self._sock.accept()
-            self._service(self, conn)
+            self._service(self, conn, self._options)
         except (OSError, IOError) as e:
             if errno_at_exception(e) in \
                (errno.EAGAIN, errno.EINPROGRESS, errno.EWOULDBLOCK):
                 return
             else:
-                traceback.print_exc()
                 logging.error('accept: %s', e)
 
     def handle_timer(self):
@@ -850,12 +849,76 @@ class TCPController(object):
 ################################################
 
 
+class RemoteService(TCPService):
+
+    def __init__(self, controller, conn, options):
+        super(RemoteService, self).__init__(controller, conn, options)
+
+    def handle_read(self, ssock, data):
+        if self._step == STEP_TERMINATE:
+            return
+
+        if ssock == self._source:
+            size = len(data)
+            if self._step == STEP_INIT:
+                if size < 7 or ord(data[0]) != 0x05:
+                    raise Exception("socks5 header")
+
+                cmd = ord(data[1])
+                if cmd != 1:  # CONNECT
+                    raise Exception("socks5 command")
+
+                atyp = ord(data[3])
+                if atyp == 1:  # IPV4
+                    apos = 4
+                    ppos = apos + 4
+                    rear = ppos + 2
+                elif atyp == 3:  # Domain
+                    apos = 5
+                    ppos = apos + ord(data[4])
+                    rear = ppos + 2
+                elif atype == 4:  # IPV6
+                    apos = 4
+                    ppos = apos + 16
+                    rear = ppos + 2
+                else:
+                    raise Exception("socks5 address")
+                if rear != size:
+                    raise Exception("socks5 request size")
+
+                self._source.set_status(STATUS_WRITE)
+                self.connect(str(data[apos:ppos]) if atyp == 3 else socket.inet_ntoa(data[apos:ppos]),
+                             struct.unpack('>H', data[ppos:rear])[0])
+
+            elif self._step == STEP_TRANSPORT:
+                self._target.send(data)
+
+        elif ssock == self._target:
+            if self._step == STEP_TRANSPORT:
+                self._source.send(data)
+
+    def handle_connect(self, success):
+        if success:
+            self._source.send(b'\x05\x04\00')
+            self.terminate()
+
+        else:
+            self._source.send(b'\x05\00\00')
+
+            self._step = STEP_TRANSPORT
+            self._source.set_status(STATUS_READWRITE)
+            self._target.set_status(STATUS_READWRITE)
+
+
 class LocalService(TCPService):
 
-    def __init__(self, controller, conn):
+    def __init__(self, controller, conn, options):
         self._ver = None
-        self._origin_addr = None
-        super(LocalService, self).__init__(controller, conn)
+        self._resp_padding = None
+        self._socks5_request = None
+        self._remote_addr = options.remote_addr
+        self._remote_port = options.remote_port
+        super(LocalService, self).__init__(controller, conn, options)
 
     def handle_read(self, ssock, data):
         if self._step == STEP_TERMINATE:
@@ -875,11 +938,10 @@ class LocalService(TCPService):
                 elif ver == 0x04:
                     if size < 9 or ord(data[size - 1]) != 0x0:
                         raise Exception("socks4 format")
-                    if ord(data[1]) != 1:
+                    if ord(data[1]) != 1:  # CONNECT
                         raise Exception("socks4 command")
-                    remote_addr = socket.inet_ntoa(data[4:8])
-                    remote_port = struct.unpack('>H', data[2:4])[0]
-                    self._origin_addr = data[2:8]
+                    atyp = None
+                    self._resp_padding = data[2:8]
                     # socks4a
                     if ord(data[4]) == 0 and ord(data[5]) == 0 and ord(data[6]) == 0:
                         dpos = 8
@@ -891,44 +953,38 @@ class LocalService(TCPService):
                                 break
                         if not hhead or dpos + 1 >= size:
                             raise Exception("socks4a header")
-                        remote_addr = str(data[dpos:size - 1])
+                        atyp = 0x03
+                        addr = str(data[dpos:size - 1])
+
+                    else:
+                        atyp = 0x01
+                        addr = socket.inet_ntoa(data[4:8])
+
+                    self._socks5_request = b'\x05\01\00' + chr(atyp)
+                    if atyp == 0x03:
+                        self._socks5_request += chr(len(addr)) + addr
+                    else:
+                        self._socks5_request += socket.inet_aton(addr)
+
+                    self._socks5_request += data[2:4]
 
                     self._ver = 0x04
                     self._source.set_status(STATUS_WRITE)
-                    self.connect(remote_addr, remote_port)
+                    self.connect(self._remote_addr, self._remote_port)
 
                 else:
-                    raise Exception("socks prototal")
+                    raise Exception("socksX prototal")
 
             elif self._step == STEP_ADDRESS:
                 if size < 7 or ord(data[0]) != 0x05:
                     raise Exception("socks5 header")
 
-                cmd = ord(data[1])
-                if cmd != 1:  # CONNECT
-                    raise Exception("socks5 command")
-                atyp = ord(data[3])
-                if atyp == 1:  # IPV4
-                    if size < 10:
-                        raise Exception("socks5 ipv4")
-                    dpos = 10
-                    remote_addr = socket.inet_ntoa(data[4:8])
-                    remote_port = struct.unpack('>H', data[8:dpos])[0]
-                elif atyp == 3:
-                    hlen = ord(data[4])
-                    ppos = 5 + hlen
-                    dpos = ppos + 2
-                    remote_addr = str(data[5:ppos])
-                    remote_port = struct.unpack('>H', data[ppos:dpos])[0]
-                else:
-                    raise Exception("socks5 address")
-                if dpos != size:
-                    raise Exception("socks5 header size")
-                self._origin_addr = data[3:]
+                self._resp_padding = data[3:]
 
                 self._ver = 0x05
+                self._socks5_request = data
                 self._source.set_status(STATUS_WRITE)
-                self.connect(remote_addr, remote_port)
+                self.connect(self._remote_addr, self._remote_port)
 
             elif self._step == STEP_TRANSPORT:
                 self._target.send(data)
@@ -936,39 +992,55 @@ class LocalService(TCPService):
         elif ssock == self._target:
             if self._step == STEP_TRANSPORT:
                 self._source.send(data)
+            elif self._step == STEP_RELAYING:
+                if size < 3:
+                    raise Exception("resp socks5 size")
+                elif ord(data[0]) != 0x5:
+                    raise Exception("resp socks5 version")
+                elif ord(data[2]) != 0x0:
+                    self._connect_error()
+                else:
+                    self._connect_success()
+
+    def _connect_error(self):
+        if self._ver == 0x04:
+            self._source.send(b'\x00\x5b' + self._resp_padding)
+        else:
+            self._source.send(b'\x05\x04\00' + self._resp_padding)
+
+        self.terminate()
+
+    def _connect_success(self):
+        if self._ver == 0x04:
+            self._source.send(b'\x00\x5a' + self._resp_padding)
+        else:
+            self._source.send(b'\x05\00\00' + self._resp_padding)
+
+        self._step = STEP_TRANSPORT
+        self._source.set_status(STATUS_READWRITE)
+        self._target.set_status(STATUS_READWRITE)
 
     def handle_connect(self, success):
         if success:
-            if self._ver == 0x04:
-                self._source.send(b'\x00\x5b' + self._origin_addr)
-            else:
-                self._source.send(b'\x05\x04\00' + self._origin_addr)
-
-            self.terminate()
-
+            self._connect_error()
         else:
-            if self._ver == 0x04:
-                self._source.send(b'\x00\x5a' + self._origin_addr)
-            else:
-                self._source.send(b'\x05\00\00' + self._origin_addr)
-
-            self._step = STEP_TRANSPORT
-            self._source.set_status(STATUS_READWRITE)
-            self._target.set_status(STATUS_READWRITE)
+            self._target.send(self._socks5_request)
+            self._step = STEP_RELAYING
+            self._target.set_status(STATUS_READ)
 
 
 ################################################
 
 
-def run_remote(options):
-    pass
-
-
-def run_local(options):
+def main(options):
     try:
         loop = EventLoop()
         dnsc = DNSController(loop)
-        relay = TCPController(loop, dnsc, options, LocalService)
+
+        if options.role == "local":
+            relay = TCPController(loop, dnsc, options, LocalService)
+        else:
+            relay = TCPController(loop, dnsc, options, RemoteService)
 
         def sigquit_handler(signum, _):
             logging.warn('received SIGQUIT, shutting down..')
@@ -984,29 +1056,47 @@ def run_local(options):
         sys.exit(1)
 
 ################################################
-from optparse import OptionParser
+from optparse import *
 
 if __name__ == '__main__':
     parser = OptionParser()
+    role_choices = ["remote", "local"]
     parser.add_option("-r", "--role",
-                      dest="role",
-                      help="service role: remote, local")
+                      type="choice", dest="role",
+                      choices=role_choices,
+                      help="server role: " + ", ".join(role_choices))
     parser.add_option("-b", "--bind-addr",
                       dest="bind_addr", default="0.0.0.0",
                       help="net address for bind")
     parser.add_option("-p", "--bind-port",
-                      dest="bind_port", default="51080",
+                      type="int", dest="bind_port", default="51080",
                       help="net port for bind")
+    algorithm_choices = ["salt"]
     parser.add_option("-m", "--algorithm",
-                      dest="algorithm", default="salt",
-                      help="algorithm for transport: salt")
+                      type="choice", dest="algorithm", default="salt",
+                      choices=algorithm_choices,
+                      help="algorithm for transport: " + ", ".join(algorithm_choices))
     parser.add_option("-s", "--secret",
                       dest="secret",
                       help="secret for transport")
+    lgroup = OptionGroup(parser, "local server")
+    lgroup.add_option("-R", "--remote-addr",
+                      dest="remote_addr",
+                      help="remote server net address")
+    lgroup.add_option("-P", "--remote-port", default="51080",
+                      type="int", dest="remote_port",
+                      help="remote server net port")
+    parser.add_option_group(lgroup)
     (options, args) = parser.parse_args()
-    if options.role == "remote":
-        run_remote(options)
-    elif options.role == "local":
-        run_local(options)
-    else:
+
+    if options.role not in ("remote", "local"):
         parser.print_usage()
+        sys.exit(1)
+
+    if options.role == "local":
+        if not options.remote_addr:
+            raise Exception("lost options: -R or --remote_addr")
+        if not options.remote_port:
+            raise Exception("lost options: -P or --remote_port")
+
+    main(options)
