@@ -291,7 +291,7 @@ class SecretSalt(object):
     def _xor(self, data):
         src = bytearray(data)
         dest = bytearray(len(src))
-        for i in range(0, len(src)):
+        for i in range(len(src)):
             dest[i] = src[i] ^ self._xors[i % self._size]
         return str(dest)
 
