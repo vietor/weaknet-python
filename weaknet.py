@@ -285,7 +285,7 @@ class EventLoop(object):
 ################################################
 
 
-class SecretSalt(object):
+class SecretXor(object):
 
     def __init__(self, secret):
         self._xors = bytearray(secret)
@@ -295,24 +295,26 @@ class SecretSalt(object):
 
     def encrypt(self, data):
         src = bytearray(data)
-        dest = bytearray(len(src))
-        for i in range(len(src)):
+        size = len(src)
+        dest = bytearray(size)
+        for i in range(size):
             dest[i] = src[i] ^ self._xors[self._epos]
             self._epos = (self._epos + 1) % self._size
         return str(dest)
 
     def decrypt(self, data):
         src = bytearray(data)
-        dest = bytearray(len(src))
-        for i in range(len(src)):
+        size = len(src)
+        dest = bytearray(size)
+        for i in range(size):
             dest[i] = src[i] ^ self._xors[self._dpos]
             self._dpos = (self._dpos + 1) % self._size
         return str(dest)
 
 
 def make_secret(algorithm, secret):
-    if(algorithm == "salt"):
-        return SecretSalt(secret)
+    if(algorithm == "xor"):
+        return SecretXor(secret)
     raise Exception("algorithm unsupport")
 
 
@@ -1129,9 +1131,9 @@ if __name__ == '__main__':
     parser.add_option("-p", "--bind-port",
                       type="int", dest="bind_port", default="0",
                       help="net port for bind")
-    algorithm_choices = ["salt"]
+    algorithm_choices = ["xor"]
     parser.add_option("-m", "--algorithm",
-                      type="choice", dest="algorithm", default="salt",
+                      type="choice", dest="algorithm", default="xor",
                       choices=algorithm_choices,
                       help="algorithm for transport: " + ", ".join(algorithm_choices))
     parser.add_option("-s", "--secret",
