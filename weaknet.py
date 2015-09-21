@@ -286,20 +286,25 @@ class SecretSalt(object):
 
     def __init__(self, secret):
         self._xors = bytearray(secret)
+        self._epos = 0
+        self._dpos = 0
         self._size = len(self._xors)
 
-    def _xor(self, data):
+    def encrypt(self, data):
         src = bytearray(data)
         dest = bytearray(len(src))
         for i in range(len(src)):
-            dest[i] = src[i] ^ self._xors[i % self._size]
+            dest[i] = src[i] ^ self._xors[self._epos]
+            self._epos = (self._epos + 1) % self._size
         return str(dest)
 
-    def encrypt(self, data):
-        return self._xor(data)
-
     def decrypt(self, data):
-        return self._xor(data)
+        src = bytearray(data)
+        dest = bytearray(len(src))
+        for i in range(len(src)):
+            dest[i] = src[i] ^ self._xors[self._dpos]
+            self._dpos = (self._dpos + 1) % self._size
+        return str(dest)
 
 
 def make_secret(algorithm, secret):
