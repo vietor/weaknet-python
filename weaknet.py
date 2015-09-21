@@ -277,6 +277,20 @@ class EventLoop(object):
                 for callback in self._timer_callbacks:
                     callback()
 
+################################################
+
+
+class DataSecret(object):
+
+    def __init__(self, algorithm, secret):
+        pass
+
+    def encrypt(self, data):
+        return data
+
+    def decrypt(self, data):
+        return data
+
 
 ################################################
 import socket
@@ -853,6 +867,7 @@ class TCPController(object):
 class RemoteService(TCPService):
 
     def __init__(self, controller, conn, options):
+        self._secret = DataSecret(options.algorithm, options.secret)
         super(RemoteService, self).__init__(controller, conn, options)
 
     def handle_read(self, ssock, data):
@@ -865,10 +880,11 @@ class RemoteService(TCPService):
                 if size < 3 or data[0] != 'G' or data[1] != 'E' or data[2] != 'T':
                     raise Exception("http header")
                 raw = data.find("\r\n\r\n")
-                if raw < 0 or raw + 4 >=size:
+                if raw < 0 or raw + 4 >= size:
                     raise Exception("http package")
-                data = data[raw + 4:]
-                size = size - raw - 4
+
+                data = self._secret.decrypt(data[raw + 4:])
+                size = len(data)
 
                 if size < 7 or ord(data[0]) != 0x05:
                     raise Exception("socks5 header")
@@ -900,21 +916,20 @@ class RemoteService(TCPService):
                              struct.unpack('>H', data[ppos:rear])[0])
 
             elif self._step == STEP_TRANSPORT:
-                self._target.send(data)
+                self._target.send(self._secret.decrypt(data))
 
         elif ssock == self._target:
             if self._step == STEP_TRANSPORT:
-                self._source.send(data)
+                self._source.send(self._secret.encrypt(data))
 
     def handle_connect(self, success):
         if success:
-            self._source.send(b'\x05\x04\00')
+            self._source.send(self._secret.encrypt(b'\x05\x04\00'))
             self.terminate()
 
         else:
-            self._source.send(b'\x05\00\00')
-
             self._step = STEP_TRANSPORT
+            self._source.send(self._secret.encrypt(b'\x05\00\00'))
             self._source.set_status(STATUS_READWRITE)
             self._target.set_status(STATUS_READWRITE)
 
@@ -927,6 +942,7 @@ class LocalService(TCPService):
         self._socks5_request = None
         self._remote_addr = options.remote_addr
         self._remote_port = options.remote_port
+        self._secret = DataSecret(options.algorithm, options.secret)
         super(LocalService, self).__init__(controller, conn, options)
 
     def handle_read(self, ssock, data):
@@ -996,11 +1012,11 @@ class LocalService(TCPService):
                 self.connect(self._remote_addr, self._remote_port)
 
             elif self._step == STEP_TRANSPORT:
-                self._target.send(data)
+                self._target.send(self._secret.encrypt(data))
 
         elif ssock == self._target:
             if self._step == STEP_TRANSPORT:
-                self._source.send(data)
+                self._source.send(self._secret.decrypt(data))
             elif self._step == STEP_RELAYING:
                 if size < 3:
                     raise Exception("resp socks5 size")
@@ -1013,19 +1029,21 @@ class LocalService(TCPService):
 
     def _connect_error(self):
         if self._ver == 0x04:
-            self._source.send(b'\x00\x5b' + self._resp_padding)
+            data = b'\x00\x5b'
         else:
-            self._source.send(b'\x05\x04\00' + self._resp_padding)
+            data = b'\x05\x04\00'
 
+        self._source.send(data + self._resp_padding)
         self.terminate()
 
     def _connect_success(self):
         if self._ver == 0x04:
-            self._source.send(b'\x00\x5a' + self._resp_padding)
+            data = b'\x00\x5a'
         else:
-            self._source.send(b'\x05\00\00' + self._resp_padding)
+            data = b'\x05\00\00'
 
         self._step = STEP_TRANSPORT
+        self._source.send(data + self._resp_padding)
         self._source.set_status(STATUS_READWRITE)
         self._target.set_status(STATUS_READWRITE)
 
@@ -1034,11 +1052,12 @@ class LocalService(TCPService):
             self._connect_error()
         else:
             data = bytearray("GET / HTTP 1.1" +
-                             "\r\nHost: " + self._remote_addr +
                              "\r\nAccept: */*" +
+                             "\r\nConnection: keepalive" +
+                             "\r\nContent-Length: 0" +
                              "\r\n\r\n")
-            self._target.send(data + self._socks5_request)
             self._step = STEP_RELAYING
+            self._target.send(data + self._secret.encrypt(self._socks5_request))
             self._target.set_status(STATUS_READ)
 
 
