@@ -2,6 +2,9 @@
 
 VERSION = "1.0.1"
 
+DEFAULT_LOCAL_PORT = 51080
+DEFAULT_REMOTE_PORT = 8080
+
 ################################################
 import os
 import sys
@@ -835,10 +838,6 @@ class TCPController(object):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(sa)
         sock.setblocking(False)
-        try:
-            sock.setsockopt(socket.SOL_TCP, 23, 5)
-        except socket.error:
-            pass
         sock.listen(1024)
         logging.debug("TCP listen %s:%d" % sa)
 
@@ -1128,7 +1127,7 @@ if __name__ == '__main__':
                       dest="bind_addr", default="0.0.0.0",
                       help="net address for bind")
     parser.add_option("-p", "--bind-port",
-                      type="int", dest="bind_port", default="51080",
+                      type="int", dest="bind_port", default="0",
                       help="net port for bind")
     algorithm_choices = ["salt"]
     parser.add_option("-m", "--algorithm",
@@ -1142,7 +1141,7 @@ if __name__ == '__main__':
     lgroup.add_option("-R", "--remote-addr",
                       dest="remote_addr",
                       help="remote server net address")
-    lgroup.add_option("-P", "--remote-port", default="51080",
+    lgroup.add_option("-P", "--remote-port", default="0",
                       type="int", dest="remote_port",
                       help="remote server net port")
     parser.add_option_group(lgroup)
@@ -1155,9 +1154,16 @@ if __name__ == '__main__':
     if not options.secret:
         raise Exception("lost options: -s or --secret")
     if options.role == "local":
+        if options.bind_port == 0:
+            options.bind_port = DEFAULT_LOCAL_PORT
+
         if not options.remote_addr:
             raise Exception("lost options: -R or --remote_addr")
         if not options.remote_port:
-            raise Exception("lost options: -P or --remote_port")
+            options.remote_port = DEFAULT_REMOTE_PORT
+
+    elif options.role == "remote":
+        if options.bind_port == 0:
+            options.bind_port = DEFAULT_REMOTE_PORT
 
     main(options)
