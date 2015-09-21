@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+VERSION = "1.0.1"
+
 ################################################
 import os
 import sys
@@ -1108,7 +1110,7 @@ def main(options):
 from optparse import *
 
 if __name__ == '__main__':
-    parser = OptionParser()
+    parser = OptionParser(version="%prog " + VERSION)
     role_choices = ["remote", "local"]
     parser.add_option("-r", "--role",
                       type="choice", dest="role",
