@@ -684,20 +684,23 @@ class TCPServiceSocket(object):
             return
 
         incomplete = False
-        try:
-            l = len(data)
-            s = self._sock.send(data)
-            if s < l:
-                data = data[s:]
-                incomplete = True
-        except (OSError, IOError) as e:
-            if errno_at_exception(e) in \
-               (errno.EAGAIN, errno.EINPROGRESS, errno.EWOULDBLOCK):
-                incomplete = True
-            else:
-                logging.error("sock write: %s", e)
-                self._service.terminate()
-                return
+        if len(self._data_to_write) > 0:
+            incomplete = True
+        else:
+            try:
+                l = len(data)
+                s = self._sock.send(data)
+                if s < l:
+                    data = data[s:]
+                    incomplete = True
+            except (OSError, IOError) as e:
+                if errno_at_exception(e) in \
+                   (errno.EAGAIN, errno.EINPROGRESS, errno.EWOULDBLOCK):
+                    incomplete = True
+                else:
+                    logging.error("sock write: %s", e)
+                    self._service.terminate()
+                    return
 
         if incomplete:
             self._data_to_write.append(data)
