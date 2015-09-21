@@ -743,9 +743,8 @@ class TCPServiceSocket(object):
             self._update_status(STATUS_READ)
 
     def _on_event_error(self):
-        logging.debug("sock error")
         if self._sock:
-            logging.error(get_sock_error(self._sock))
+            logging.error("sock error: ", get_sock_error(self._sock))
             self._service.terminate()
 
 
@@ -797,7 +796,7 @@ class TCPService(object):
             return
         if ssock == self._target:
             if self._step == STEP_CONNECT:
-                self.handle_connect(self._target.has_error())
+                self.handle_connect(self._target.has_error() == 0)
 
     def handle_address(self, hostname, ip):
         if self._step == STEP_TERMINATE:
@@ -946,15 +945,15 @@ class RemoteService(TCPService):
                 self._source.send(self._secret.encrypt(data))
 
     def handle_connect(self, success):
-        if success:
+        if not success:
             self._source.send(self._secret.encrypt(b'\x05\x04\00'))
             self.terminate()
+            return
 
-        else:
-            self._step = STEP_TRANSPORT
-            self._source.send(self._secret.encrypt(b'\x05\00\00'))
-            self._source.set_status(STATUS_READWRITE)
-            self._target.set_status(STATUS_READWRITE)
+        self._step = STEP_TRANSPORT
+        self._source.send(self._secret.encrypt(b'\x05\00\00'))
+        self._source.set_status(STATUS_READWRITE)
+        self._target.set_status(STATUS_READWRITE)
 
 
 class LocalService(TCPService):
@@ -1038,9 +1037,7 @@ class LocalService(TCPService):
                 self._target.send(self._secret.encrypt(data))
 
         elif ssock == self._target:
-            if self._step == STEP_TRANSPORT:
-                self._source.send(self._secret.decrypt(data))
-            elif self._step == STEP_RELAYING:
+            if self._step == STEP_RELAYING:
                 data = self._secret.decrypt(data)
                 size = len(data)
                 if size < 3:
@@ -1051,6 +1048,9 @@ class LocalService(TCPService):
                     self._connect_error()
                 else:
                     self._connect_success()
+
+            elif self._step == STEP_TRANSPORT:
+                self._source.send(self._secret.decrypt(data))
 
     def _connect_error(self):
         if self._ver == 0x04:
