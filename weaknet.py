@@ -280,16 +280,30 @@ class EventLoop(object):
 ################################################
 
 
-class DataSecret(object):
+class SecretSalt(object):
 
-    def __init__(self, algorithm, secret):
-        pass
+    def __init__(self, secret):
+        self._xors = bytearray(secret)
+        self._size = len(self._xors)
+
+    def _xor(self, data):
+        src = bytearray(data)
+        dest = bytearray(len(src))
+        for i in range(0, len(src)):
+            dest[i] = src[i] ^ self._xors[i % self._size]
+        return str(dest)
 
     def encrypt(self, data):
-        return data
+        return self._xor(data)
 
     def decrypt(self, data):
-        return data
+        return self._xor(data)
+
+
+def make_secret(algorithm, secret):
+    if(algorithm == "salt"):
+        return SecretSalt(secret)
+    raise Exception("algorithm unsupport")
 
 
 ################################################
@@ -867,7 +881,7 @@ class TCPController(object):
 class RemoteService(TCPService):
 
     def __init__(self, controller, conn, options):
-        self._secret = DataSecret(options.algorithm, options.secret)
+        self._secret = make_secret(options.algorithm, options.secret)
         super(RemoteService, self).__init__(controller, conn, options)
 
     def handle_read(self, ssock, data):
@@ -942,15 +956,15 @@ class LocalService(TCPService):
         self._socks5_request = None
         self._remote_addr = options.remote_addr
         self._remote_port = options.remote_port
-        self._secret = DataSecret(options.algorithm, options.secret)
+        self._secret = make_secret(options.algorithm, options.secret)
         super(LocalService, self).__init__(controller, conn, options)
 
     def handle_read(self, ssock, data):
         if self._step == STEP_TERMINATE:
             return
 
-        size = len(data)
         if ssock == self._source:
+            size = len(data)
             if self._step == STEP_INIT:
                 ver = ord(data[0])
                 # socks5
@@ -1018,6 +1032,8 @@ class LocalService(TCPService):
             if self._step == STEP_TRANSPORT:
                 self._source.send(self._secret.decrypt(data))
             elif self._step == STEP_RELAYING:
+                data = self._secret.decrypt(data)
+                size = len(data)
                 if size < 3:
                     raise Exception("resp socks5 size")
                 elif ord(data[0]) != 0x5:
@@ -1057,7 +1073,8 @@ class LocalService(TCPService):
                              "\r\nContent-Length: 0" +
                              "\r\n\r\n")
             self._step = STEP_RELAYING
-            self._target.send(data + self._secret.encrypt(self._socks5_request))
+            self._target.send(
+                data + self._secret.encrypt(self._socks5_request))
             self._target.set_status(STATUS_READ)
 
 
@@ -1125,6 +1142,8 @@ if __name__ == '__main__':
         parser.print_usage()
         sys.exit(1)
 
+    if not options.secret:
+        raise Exception("lost options: -s or --secret")
     if options.role == "local":
         if not options.remote_addr:
             raise Exception("lost options: -R or --remote_addr")
