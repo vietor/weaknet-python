@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 DEFAULT_LOCAL_PORT = 51080
-DEFAULT_REMOTE_PORT = 8080
+DEFAULT_REMOTE_PORT = 58080
 
 ################################################
 import os
@@ -787,7 +787,7 @@ class TCPService(object):
         self._target_addr = (addr, port)
         self._controller._dnsc.register(self.handle_address, addr)
 
-    def handle_connect(self, success):
+    def handle_connect(self, error):
         pass
 
     def handle_read(self, ssock, data):
@@ -798,21 +798,22 @@ class TCPService(object):
             return
         if ssock == self._target:
             if self._step == STEP_CONNECT:
-                self.handle_connect(self._target.has_error() == 0)
+                self.handle_connect(ssock.has_error())
 
     def handle_address(self, hostname, ip):
         if self._step == STEP_TERMINATE:
             return
         if not ip:
+            logging.debug("dns error: %s", hostname)
             self.terminate()
             return
-        try:
-            sock, sa = get_sock_byaddr(ip, self._target_addr[1])
-            if not sock:
-                raise Exception('target addr error: %s:%d' % self._target_addr)
-        except Exception as e:
+
+        sock, sa = get_sock_byaddr(ip, self._target_addr[1])
+        if not sock:
+            logging.error('addr error: %s:%d' % self._target_addr)
             self.terminate()
             return
+
         sock.setblocking(False)
         sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
         self._target.attach(sock, STATUS_WRITE)
@@ -946,8 +947,8 @@ class RemoteService(TCPService):
             if self._step == STEP_TRANSPORT:
                 self._source.send(self._secret.encrypt(data))
 
-    def handle_connect(self, success):
-        if not success:
+    def handle_connect(self, error):
+        if error:
             self._source.send(self._secret.encrypt(b'\x05\x04\00'))
             self.terminate()
             return
@@ -1074,8 +1075,8 @@ class LocalService(TCPService):
         self._source.set_status(STATUS_READWRITE)
         self._target.set_status(STATUS_READWRITE)
 
-    def handle_connect(self, success):
-        if success:
+    def handle_connect(self, error):
+        if error:
             self._connect_error()
         else:
             data = bytearray("GET / HTTP 1.1" +
@@ -1084,8 +1085,8 @@ class LocalService(TCPService):
                              "\r\nContent-Length: 0" +
                              "\r\n\r\n")
             self._step = STEP_RELAYING
-            self._target.send(
-                data + self._secret.encrypt(self._socks5_request))
+            self._target.send(data +
+                              self._secret.encrypt(self._socks5_request))
             self._target.set_status(STATUS_READ)
 
 
