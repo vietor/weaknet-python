@@ -295,17 +295,18 @@ class EventLoop(object):
 class SecretFool(object):
 
     def __init__(self, secret):
-        self._xors = sha512(secret)
+        buff = bytearray(sha512(secret))
         self._epos = 0
         self._dpos = 0
-        self._size = len(self._xors)
+        self._buff = buff
+        self._size = len(buff)
 
     def encrypt(self, data):
         src = bytearray(data)
         size = len(src)
         dest = bytearray(size)
         for i in range(size):
-            dest[i] = src[i] ^ self._xors[self._epos]
+            dest[i] = src[i] ^ self._buff[self._epos]
             self._epos = (self._epos + 1) % self._size
         return str(dest)
 
@@ -314,7 +315,7 @@ class SecretFool(object):
         size = len(src)
         dest = bytearray(size)
         for i in range(size):
-            dest[i] = src[i] ^ self._xors[self._dpos]
+            dest[i] = src[i] ^ self._buff[self._dpos]
             self._dpos = (self._dpos + 1) % self._size
         return str(dest)
 
