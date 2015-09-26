@@ -746,7 +746,7 @@ class TCPServiceSocket(object):
 
     def _on_event_error(self):
         if self._sock:
-            logging.error("sock error: ", get_sock_error(self._sock))
+            logging.error("sock error: %s", get_sock_error(self._sock))
             self._service.terminate()
 
 
