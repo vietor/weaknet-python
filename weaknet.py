@@ -301,23 +301,22 @@ class SecretFool(object):
         self._buff = buff
         self._size = len(buff)
 
-    def encrypt(self, data):
+    def _xor(self, data, pos):
         src = bytearray(data)
         size = len(src)
         dest = bytearray(size)
         for i in range(size):
-            dest[i] = src[i] ^ self._buff[self._epos]
-            self._epos = (self._epos + 1) % self._size
-        return str(dest)
+            dest[i] = src[i] ^ self._buff[pos]
+            pos = (pos + 1) % self._size
+        return (str(dest), pos)
+
+    def encrypt(self, data):
+        dest, self._epos = self._xor(data, self._epos)
+        return dest
 
     def decrypt(self, data):
-        src = bytearray(data)
-        size = len(src)
-        dest = bytearray(size)
-        for i in range(size):
-            dest[i] = src[i] ^ self._buff[self._dpos]
-            self._dpos = (self._dpos + 1) % self._size
-        return str(dest)
+        dest, self._dpos = self._xor(data, self._dpos)
+        return dest
 
 
 def make_secret(algorithm, secret):
