@@ -12,7 +12,14 @@ import time
 import errno
 import signal
 import logging
+import hashlib
 import traceback
+
+
+def sha512(text):
+    m = hashlib.sha512()
+    m.update(text)
+    return m.digest()
 
 
 def errno_at_exception(e):
@@ -285,10 +292,10 @@ class EventLoop(object):
 ################################################
 
 
-class SecretXor(object):
+class SecretFool(object):
 
     def __init__(self, secret):
-        self._xors = bytearray(secret)
+        self._xors = sha512(secret)
         self._epos = 0
         self._dpos = 0
         self._size = len(self._xors)
@@ -313,8 +320,8 @@ class SecretXor(object):
 
 
 def make_secret(algorithm, secret):
-    if(algorithm == "xor"):
-        return SecretXor(secret)
+    if(algorithm == "fool"):
+        return SecretFool(secret)
     raise Exception("algorithm unsupport")
 
 
@@ -1132,9 +1139,9 @@ if __name__ == '__main__':
     parser.add_option("-p", "--bind-port",
                       type="int", dest="bind_port", default="0",
                       help="net port for bind")
-    algorithm_choices = ["xor"]
+    algorithm_choices = ["fool"]
     parser.add_option("-m", "--algorithm",
-                      type="choice", dest="algorithm", default="xor",
+                      type="choice", dest="algorithm", default="fool",
                       choices=algorithm_choices,
                       help="algorithm for transport: " + ", ".join(algorithm_choices))
     parser.add_option("-s", "--secret",
