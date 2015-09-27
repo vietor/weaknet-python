@@ -295,20 +295,48 @@ class EventLoop(object):
 class SecretFool(object):
 
     def __init__(self, secret):
-        buff = bytearray(sha512(secret))
+        buff = sha512(secret)
         self._epos = 0
         self._dpos = 0
-        self._buff = buff
-        self._size = len(buff)
+        self._bbuff = bytearray(buff)
+        self._bsize = len(self._bbuff)
+        self._qsize = self._bsize / 8
+        self._qbuff = struct.unpack("<" + str(self._qsize) + "Q", buff)
 
-    def _xor(self, data, pos):
-        src = bytearray(data)
-        size = len(src)
+    def _xor(self, data, xpos):
+        pos = 0
+        size = len(data)
         dest = bytearray(size)
-        for i in range(size):
-            dest[i] = src[i] ^ self._buff[pos]
-            pos = (pos + 1) % self._size
-        return (str(dest), pos)
+
+        if xpos > 0 and xpos % 8 != 0:
+            qcnt = 8 - (xpos % 8)
+            if qcnt <= size:
+                pos += qcnt
+                orig = bytearray(data[:qcnt])
+                for i in range(qcnt):
+                    dest[i] = orig[i] ^ self._bbuff[xpos]
+                    xpos = (xpos + 1) % self._bsize
+
+        if pos < size and size - pos > 8:
+            qpos = xpos / 8
+            qcnt = (size - pos) / 8
+            for i in range(qcnt):
+                kq = self._qbuff[qpos]
+                qpos = (qpos + 1) % self._qsize
+                sq = struct.unpack_from("<1Q", data, pos)[0]
+                struct.pack_into("<1Q", dest, pos, sq ^ kq)
+                pos += 8
+
+            xpos = qpos * 8
+
+        if pos < size:
+            qcnt = size - pos
+            orig = bytearray(data[pos:])
+            for i in range(qcnt):
+                dest[pos + i] = orig[i] ^ self._bbuff[xpos]
+                xpos = (xpos + 1) % self._bsize
+
+        return (str(dest), xpos)
 
     def encrypt(self, data):
         dest, self._epos = self._xor(data, self._epos)
