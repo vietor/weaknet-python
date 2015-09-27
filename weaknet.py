@@ -13,7 +13,6 @@ import errno
 import signal
 import logging
 import hashlib
-import traceback
 
 
 def sha512(text):
@@ -277,7 +276,7 @@ class EventLoop(object):
                     try:
                         handler.handle_event(sock, fd, event)
                     except (OSError, IOError) as e:
-                        logging.error('handle: %s', e)
+                        logging.error('loop handle: %s', e)
 
             if not run_timer:
                 now = time.time()
@@ -540,8 +539,8 @@ def dns_parse_response(data):
 
 class DNSController(object):
 
-    def __init__(self, loop, servers=['8.8.4.4', '8.8.8.8']):
-        self._loop = loop
+    def __init__(self, servers=['8.8.4.4', '8.8.8.8']):
+        self._loop = None
         self._servers = servers
         self._cache = LRUCache()
         self._hostname_qtypes = {}
@@ -551,6 +550,9 @@ class DNSController(object):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,
                                    socket.SOL_UDP)
         self._sock.setblocking(False)
+
+    def bind(self, loop):
+        self._loop = loop
         self._loop.add(self._sock, POLL_IN | POLL_ERR, self)
         self._loop.add_timer(self.handle_timer)
 
@@ -558,8 +560,10 @@ class DNSController(object):
         if not self._sock:
             return
         logging.debug('DNS close')
-        self._loop.remove_timer(self.handle_timer)
-        self._loop.remove(self._sock)
+        if self._loop:
+            self._loop.remove_timer(self.handle_timer)
+            self._loop.remove(self._sock)
+
         self._sock.close()
         self._sock = None
 
@@ -764,7 +768,6 @@ class TCPServiceSocket(object):
             self._service.handle_read(self, data)
         except Exception as e:
             logging.error("data handle: %s", e)
-            traceback.print_exc(e)
             self._service.terminate()
             return
 
@@ -861,9 +864,9 @@ class TCPService(object):
 
 class TCPController(object):
 
-    def __init__(self, loop, dnsc, options, service):
-        self._loop = loop
-        self._dnsc = dnsc
+    def __init__(self, options, service):
+        self._loop = None
+        self._dnsc = None
         self._options = options
         self._service = service
 
@@ -881,12 +884,18 @@ class TCPController(object):
         self._sock = sock
         self._closed = False
         self._services = {}
+
+    def bind(self, loop, dnsc):
+        self._loop = loop
+        self._dnsc = dnsc
         self._loop.add(self._sock, POLL_IN | POLL_ERR, self)
         self._loop.add_timer(self.handle_timer)
 
     def _close(self):
-        self._loop.remove_timer(self.handle_timer)
-        self._loop.remove(self._sock)
+        if self._loop:
+            self._loop.remove_timer(self.handle_timer)
+            self._loop.remove(self._sock)
+
         self._sock.close()
         self._sock = None
 
@@ -1129,27 +1138,71 @@ class LocalService(TCPService):
 
 
 def main(options):
-    try:
-        loop = EventLoop()
-        dnsc = DNSController(loop)
 
-        if options.role == "local":
-            relay = TCPController(loop, dnsc, options, LocalService)
+    if options.role == "local":
+        relay = TCPController(options, LocalService)
+    else:
+        relay = TCPController(options, RemoteService)
+
+    def run_worker():
+        try:
+            loop = EventLoop()
+            dnsc = DNSController()
+
+            dnsc.bind(loop)
+            relay.bind(loop, dnsc)
+
+            def sgint_handler(signum, _):
+                sys.exit(1)
+
+            def sigquit_handler(signum, _):
+                logging.warn('received SIGQUIT, shutting down..')
+                relay.close(delay=True)
+
+            signal.signal(signal.SIGINT, sgint_handler)
+            signal.signal(getattr(signal, 'SIGQUIT', signal.SIGTERM),
+                          sigquit_handler)
+
+            loop.run()
+        except Exception as e:
+            logging.error("shutodwn on exception: %s", e)
+            sys.exit(1)
+
+    if options.workers < 2 or os.name != 'posix':
+        run_worker()
+    else:
+        children = []
+        is_child = False
+        for i in range(options.workers):
+            pid = os.fork()
+            if pid == 0:
+                logging.info('worker started')
+                is_child = True
+                break
+            else:
+                children.append(pid)
+
+        if is_child:
+            run_worker()
         else:
-            relay = TCPController(loop, dnsc, options, RemoteService)
+            def handler(signum, _):
+                for pid in children:
+                    try:
+                        os.kill(pid, signum)
+                        os.waitpid(pid, 0)
+                    except OSError:
+                        pass
 
-        def sigquit_handler(signum, _):
-            logging.warn('received SIGQUIT, shutting down..')
-            relay.close(delay=True)
+                sys.exit(0)
 
-        signal.signal(getattr(signal, 'SIGQUIT', signal.SIGTERM),
-                      sigquit_handler)
+            signal.signal(signal.SIGTERM, handler)
+            signal.signal(signal.SIGQUIT, handler)
+            signal.signal(signal.SIGINT, handler)
 
-        loop.run()
-    except Exception as e:
-        logging.error("shutodwn on exception: %s", e)
-        traceback.print_exc()
-        sys.exit(1)
+            relay.close()
+            for child in children:
+                os.waitpid(child, 0)
+
 
 ################################################
 from optparse import *
@@ -1175,6 +1228,9 @@ if __name__ == '__main__':
     parser.add_option("-s", "--secret",
                       dest="secret",
                       help="secret for transport")
+    parser.add_option("-w", "--workers",
+                      type="int", dest="workers", default="2",
+                      help="start worker count")
     lgroup = OptionGroup(parser, "local server")
     lgroup.add_option("-R", "--remote-addr",
                       dest="remote_addr",
@@ -1184,10 +1240,6 @@ if __name__ == '__main__':
                       help="remote server net port")
     parser.add_option_group(lgroup)
     (options, args) = parser.parse_args()
-
-    if options.role not in ("remote", "local"):
-        parser.print_usage()
-        sys.exit(1)
 
     if not options.secret:
         raise Exception("lost options: -s or --secret")
