@@ -1266,7 +1266,7 @@ if __name__ == '__main__':
             pid = os.fork()
             if pid:
                 sys.exit(0)
-        except OSError, e:
+        except OSError as e:
             logging.error("fork #1: %s", e)
             sys.exit(1)
 
@@ -1277,7 +1277,7 @@ if __name__ == '__main__':
             pid = os.fork()
             if pid:
                 sys.exit(0)
-        except OSError, e:
+        except OSError as e:
             logging.error("fork #2: %s", e)
             sys.exit(1)
 
