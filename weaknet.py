@@ -137,7 +137,7 @@ class SelectAsPoll(object):
         for p in [(r, POLL_IN), (w, POLL_OUT), (x, POLL_ERR)]:
             for fd in p[0]:
                 results[fd] |= p[1]
-        return results.items()
+        return list(results.items())
 
     def register(self, fd, mode):
         if mode & POLL_IN:
@@ -188,7 +188,7 @@ class KqueueAsPoll(object):
                 results[fd] |= POLL_IN
             elif e.filter == select.KQ_FILTER_WRITE:
                 results[fd] |= POLL_OUT
-        return results.items()
+        return list(results.items())
 
     def register(self, fd, mode):
         self._fds[fd] = mode
@@ -299,7 +299,7 @@ class SecretFool(object):
         self._dpos = 0
         self._bbuff = bytearray(buff)
         self._bsize = len(self._bbuff)
-        self._qsize = self._bsize / 8
+        self._qsize = int(float(self._bsize) / 8)
         self._qbuff = struct.unpack("<" + str(self._qsize) + "Q", buff)
 
     def _xor(self, data, xpos):
@@ -317,8 +317,8 @@ class SecretFool(object):
                     xpos = (xpos + 1) % self._bsize
 
         if pos < size and size - pos > 8:
-            qpos = xpos / 8
-            qcnt = (size - pos) / 8
+            qpos = int(float(xpos) / 8)
+            qcnt = int(float(size - pos) / 8)
             for i in range(qcnt):
                 kq = self._qbuff[qpos]
                 qpos = (qpos + 1) % self._qsize
