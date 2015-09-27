@@ -15,9 +15,23 @@ import logging
 import hashlib
 
 
+def to_bytes(s):
+    if bytes != str:
+        if type(s) == str:
+            return s.encode('utf-8')
+    return s
+
+
+def to_str(s):
+    if bytes != str:
+        if type(s) == bytes:
+            return s.decode('utf-8')
+    return s
+
+
 def sha512(text):
     m = hashlib.sha512()
-    m.update(text)
+    m.update(to_bytes(text))
     return m.digest()
 
 
@@ -382,12 +396,10 @@ STATUS_READWRITE = STATUS_READ | STATUS_WRITE
 def is_ip(address):
     for family in (socket.AF_INET, socket.AF_INET6):
         try:
-            if type(address) != str:
-                address = address.decode('utf8')
-
-            socket.inet_pton(family, address)
+            socket.inet_pton(family, to_str(address))
             return family
         except (TypeError, ValueError, OSError, IOError) as e:
+            print e
             pass
     return False
 
@@ -634,8 +646,6 @@ class DNSController(object):
             self._sock.sendto(req, (server, 53))
 
     def register(self, callback, hostname):
-        if type(hostname) != bytes:
-            hostname = hostname.encode('utf8')
         if not hostname:
             callback(None, None)
         elif is_ip(hostname):
