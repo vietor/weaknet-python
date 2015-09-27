@@ -992,10 +992,14 @@ class RemoteService(TCPService):
                 if rear != size:
                     raise Exception("socks5 request size")
 
+                raw_addr = data[apos:ppos]
+                if atyp == 3:
+                    raw_addr = str(raw_addr)
+                else:
+                    raw_addr = socket.inet_ntoa(bytes(raw_addr))
+
                 self._source.set_status(STATUS_WRITE)
-                rawaddr = data[apos:ppos]
-                self.connect(str(rawaddr) if atyp == 3 else socket.inet_ntoa(rawaddr),
-                             struct.unpack('>H', data[ppos:rear])[0])
+                self.connect(raw_addr, struct.unpack('>H', data[ppos:rear])[0])
 
             elif self._step == STEP_TRANSPORT:
                 self._target.send(self._secret.decrypt(data))
