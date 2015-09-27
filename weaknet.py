@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 
+from __future__ import division, print_function
+
+
 VERSION = "1.1.0"
 
 DEFAULT_LOCAL_PORT = 51080
@@ -313,7 +316,7 @@ class SecretFool(object):
         self._dpos = 0
         self._bbuff = bytearray(buff)
         self._bsize = len(self._bbuff)
-        self._qsize = int(float(self._bsize) / 8)
+        self._qsize = int(self._bsize / 8)
         self._qbuff = struct.unpack("<" + str(self._qsize) + "Q", buff)
 
     def _xor(self, data, xpos):
@@ -331,8 +334,8 @@ class SecretFool(object):
                     xpos = (xpos + 1) % self._bsize
 
         if pos < size and size - pos > 8:
-            qpos = int(float(xpos) / 8)
-            qcnt = int(float(size - pos) / 8)
+            qpos = int(xpos / 8)
+            qcnt = int((size - pos) / 8)
             for i in range(qcnt):
                 kq = self._qbuff[qpos]
                 qpos = (qpos + 1) % self._qsize
@@ -399,7 +402,6 @@ def is_ip(address):
             socket.inet_pton(family, to_str(address))
             return family
         except (TypeError, ValueError, OSError, IOError) as e:
-            print e
             pass
     return False
 
