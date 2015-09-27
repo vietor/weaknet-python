@@ -1136,11 +1136,11 @@ class LocalService(TCPService):
         if error:
             self._connect_error()
         else:
-            data = bytearray("GET / HTTP 1.1" +
-                             "\r\nAccept: */*" +
-                             "\r\nConnection: keepalive" +
-                             "\r\nContent-Length: 0" +
-                             "\r\n\r\n")
+            data = f4bytes("GET / HTTP 1.1" +
+                           "\r\nAccept: */*" +
+                           "\r\nConnection: keepalive" +
+                           "\r\nContent-Length: 0" +
+                           "\r\n\r\n")
             self._step = STEP_RELAYING
             self._target.send(data +
                               self._secret.encrypt(self._socks5_request))
