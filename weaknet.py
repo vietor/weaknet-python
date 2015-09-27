@@ -1230,7 +1230,10 @@ if __name__ == '__main__':
                       help="secret for transport")
     parser.add_option("-w", "--workers",
                       type="int", dest="workers", default="2",
-                      help="start worker count")
+                      help="start worker count (Unix/Linux)")
+    parser.add_option("-d", "--daemon",
+                      action="store_true", dest="daemon", default=False,
+                      help="start as daemon process (Unix/Linux)")
     lgroup = OptionGroup(parser, "local server")
     lgroup.add_option("-R", "--remote-addr",
                       dest="remote_addr",
@@ -1256,4 +1259,33 @@ if __name__ == '__main__':
         if options.bind_port == 0:
             options.bind_port = DEFAULT_REMOTE_PORT
 
-    main(options)
+    if not options.daemon or os.name != "posix":
+        main(options)
+    else:
+        try:
+            pid = os.fork()
+            if pid:
+                sys.exit(0)
+        except OSError, e:
+            logging.error("fork #1: %s", e)
+            sys.exit(1)
+
+        os.setsid()
+        os.chdir("/")
+        os.umask(0)
+        try:
+            pid = os.fork()
+            if pid:
+                sys.exit(0)
+        except OSError, e:
+            logging.error("fork #2: %s", e)
+            sys.exit(1)
+
+        dnull = file("/dev/null", "rw")
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(dnull.fileno(), sys.stdin.fileno())
+        os.dup2(dnull.fileno(), sys.stdout.fileno())
+        os.dup2(dnull.fileno(), sys.stderr.fileno())
+
+        main(options)
