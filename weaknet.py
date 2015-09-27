@@ -18,23 +18,23 @@ import logging
 import hashlib
 
 
-def to_bytes(s):
-    if bytes != str:
-        if type(s) == str:
-            return s.encode('utf-8')
-    return s
-
-
-def to_str(s):
+def f4str(s):
     if bytes != str:
         if type(s) == bytes:
             return s.decode('utf-8')
     return s
 
 
+def f4bytes(s):
+    if bytes != str:
+        if type(s) == str:
+            return s.encode('utf-8')
+    return s
+
+
 def sha512(text):
     m = hashlib.sha512()
-    m.update(to_bytes(text))
+    m.update(f4bytes(text))
     return m.digest()
 
 
@@ -399,7 +399,7 @@ STATUS_READWRITE = STATUS_READ | STATUS_WRITE
 def is_ip(address):
     for family in (socket.AF_INET, socket.AF_INET6):
         try:
-            socket.inet_pton(family, to_str(address))
+            socket.inet_pton(family, f4str(address))
             return family
         except (TypeError, ValueError, OSError, IOError) as e:
             pass
@@ -993,7 +993,8 @@ class RemoteService(TCPService):
                     raise Exception("socks5 request size")
 
                 self._source.set_status(STATUS_WRITE)
-                self.connect(str(data[apos:ppos]) if atyp == 3 else socket.inet_ntoa(data[apos:ppos]),
+                rawaddr = data[apos:ppos]
+                self.connect(str(rawaddr) if atyp == 3 else socket.inet_ntoa(rawaddr),
                              struct.unpack('>H', data[ppos:rear])[0])
 
             elif self._step == STEP_TRANSPORT:
