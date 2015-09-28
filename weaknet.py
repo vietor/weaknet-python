@@ -47,11 +47,6 @@ def errno_at_exception(e):
         return None
 
 
-def sgint_handler(signum, _):
-    sys.exit(1)
-
-
-signal.signal(signal.SIGINT, sgint_handler)
 logging.basicConfig(level=logging.DEBUG, format="%(message)s")
 
 ################################################
