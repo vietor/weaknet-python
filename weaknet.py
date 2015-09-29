@@ -22,14 +22,14 @@ def f4str(s):
     if bytes != str:
         if type(s) == bytes:
             return s.decode('utf-8')
-    return s
+    return str(s)
 
 
 def f4bytes(s):
     if bytes != str:
         if type(s) == str:
             return s.encode('utf-8')
-    return s
+    return bytes(s)
 
 
 def sha512(text):
@@ -375,7 +375,8 @@ import socket
 import struct
 import random
 
-BUF_SIZE = 16384
+HOSTBUF_SIZE = 4 * 1024
+DATABUF_SIZE = 32 * 1024
 
 QTYPE_ANY = 255
 QTYPE_A = 1
@@ -405,6 +406,10 @@ def is_ip(address):
         except (TypeError, ValueError, OSError, IOError) as e:
             pass
     return False
+
+
+def get_local_ip():
+    return socket.gethostbyname(socket.gethostname())
 
 
 def get_sock_error(sock):
@@ -597,7 +602,7 @@ class DNSController(LoopHandler):
             self._sock.setblocking(False)
             self._loop.add(self._sock, POLL_IN | POLL_ERR, self)
         else:
-            data, addr = sock.recvfrom(BUF_SIZE)
+            data, addr = sock.recvfrom(HOSTBUF_SIZE)
             if addr[0] not in self._servers:
                 logging.warn('received a packet unkonw dns')
                 return
@@ -769,7 +774,7 @@ class TCPServiceSocket(object):
     def _on_event_read(self):
         data = None
         try:
-            data = self._sock.recv(BUF_SIZE)
+            data = self._sock.recv(DATABUF_SIZE)
         except (OSError, IOError) as e:
             if errno_at_exc(e) in \
                (errno.ETIMEDOUT, errno.EAGAIN, errno.EWOULDBLOCK):
@@ -1144,7 +1149,6 @@ class LocalService(TCPService):
         else:
             data = f4bytes("GET / HTTP 1.1" +
                            "\r\nAccept: */*" +
-                           "\r\nConnection: keepalive" +
                            "\r\nContent-Length: 0" +
                            "\r\n\r\n")
             self._step = STEP_RELAYING
@@ -1157,7 +1161,7 @@ class LocalService(TCPService):
 
 
 def main(options):
-
+    logging.debug("Local ip: %s", get_local_ip())
     if options.role == "local":
         relay = TCPController(options, LocalService)
     else:
