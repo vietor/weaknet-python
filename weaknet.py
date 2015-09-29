@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from __future__ import division, print_function
+from __future__ import division, print_function, with_statement
 
 
 VERSION = "1.1.1"
@@ -38,7 +38,7 @@ def sha512(text):
     return m.digest()
 
 
-def errno_at_exception(e):
+def errno_at_exc(e):
     if hasattr(e, 'errno'):
         return e.errno
     elif e.args:
@@ -51,6 +51,7 @@ logging.basicConfig(level=logging.DEBUG, format="%(message)s")
 
 ################################################
 import collections
+from collections import defaultdict
 
 
 class LRUCache(collections.MutableMapping):
@@ -61,7 +62,7 @@ class LRUCache(collections.MutableMapping):
 
         self._kv = {}
         self._key_times = {}
-        self._time_keys = collections.defaultdict(list)
+        self._time_keys = defaultdict(list)
         self._histories = collections.deque()
         self.update(dict(*args, **kwargs))
 
@@ -122,7 +123,6 @@ class LRUCache(collections.MutableMapping):
 
 ################################################
 import select
-from collections import defaultdict
 
 
 POLL_NONE = 0x00
@@ -218,6 +218,12 @@ class KqueueAsPoll(object):
         self._kqueue.close()
 
 
+class LoopHandler(object):
+
+    def handle_event(sock, fd, event):
+        pass
+
+
 class EventLoop(object):
 
     def __init__(self):
@@ -275,7 +281,7 @@ class EventLoop(object):
             try:
                 events = self.poll(TIMEOUT_OF_TIMER)
             except (OSError, IOError) as e:
-                if errno_at_exception(e) in (errno.EPIPE, errno.EINTR):
+                if errno_at_exc(e) in (errno.EPIPE, errno.EINTR):
                     run_timer = True
                 else:
                     logging.error('poll: %s', e)
@@ -419,6 +425,7 @@ def get_sock_byaddr(addr, port):
 
 
 class DNSResponse(object):
+    __slots__ = ('hostname', 'questions', 'answers')
 
     def __init__(self):
         self.hostname = None
@@ -546,12 +553,12 @@ def dns_parse_response(data):
         return None
 
 
-class DNSController(object):
+class DNSController(LoopHandler):
 
     def __init__(self, servers=['8.8.4.4', '8.8.8.8']):
         self._loop = None
         self._servers = servers
-        self._cache = LRUCache()
+        self._cache = LRUCache(timeout=300)
         self._hostname_qtypes = {}
         self._hostname_callbacks = {}
         self._callback_hostnames = {}
@@ -745,7 +752,7 @@ class TCPServiceSocket(object):
                     data = data[s:]
                     incomplete = True
             except (OSError, IOError) as e:
-                if errno_at_exception(e) in \
+                if errno_at_exc(e) in \
                    (errno.EAGAIN, errno.EINPROGRESS, errno.EWOULDBLOCK):
                     incomplete = True
                 else:
@@ -764,7 +771,7 @@ class TCPServiceSocket(object):
         try:
             data = self._sock.recv(BUF_SIZE)
         except (OSError, IOError) as e:
-            if errno_at_exception(e) in \
+            if errno_at_exc(e) in \
                (errno.ETIMEDOUT, errno.EAGAIN, errno.EWOULDBLOCK):
                 return
         if not data:
@@ -865,11 +872,11 @@ class TCPService(object):
         try:
             sock.connect(sa)
         except (OSError, IOError) as e:
-            if errno_at_exception(e) == errno.EINPROGRESS:
+            if errno_at_exc(e) == errno.EINPROGRESS:
                 pass
 
 
-class TCPController(object):
+class TCPController(LoopHandler):
 
     def __init__(self, options, service):
         self._loop = None
@@ -913,7 +920,7 @@ class TCPController(object):
             conn = self._sock.accept()
             self._service(self, conn, self._options)
         except (OSError, IOError) as e:
-            if errno_at_exception(e) in \
+            if errno_at_exc(e) in \
                (errno.EAGAIN, errno.EINPROGRESS, errno.EWOULDBLOCK):
                 return
             else:
