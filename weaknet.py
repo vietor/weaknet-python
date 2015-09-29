@@ -606,11 +606,15 @@ class DNSController(LoopHandler):
             self._sock.setblocking(False)
             self._loop.add(self._sock, POLL_IN | POLL_ERR, self)
         else:
-            data, addr = sock.recvfrom(HOSTBUF_SIZE)
-            if addr[0] not in self._servers:
-                logging.warn('received a packet unkonw dns')
-                return
-            self._handle_read(data)
+            try:
+                data, addr = sock.recvfrom(HOSTBUF_SIZE)
+                if addr[0] not in self._servers:
+                    logging.warn('received a packet unkonw dns')
+                    return
+                self._handle_read(data)
+            except Exception as e:
+                logging.error("dns handle: %s", e)
+                pass
 
     def _handle_read(self, data):
         response = dns_parse_response(data)
