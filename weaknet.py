@@ -304,7 +304,10 @@ class EventLoop(object):
 
             if run_timer:
                 for callback in self._timer_callbacks:
-                    callback()
+                    try:
+                        callback()
+                    except Exception as e:
+                        logging.error('loop timer: %s', e)
 
 ################################################
 
@@ -825,6 +828,8 @@ class TCPService(object):
         self._source_addr = conn[1]
         self._target = TCPServiceSocket(controller._loop, self)
         self._target_addr = None
+        self._address_wait = False
+        self._connect_wait = False
 
         sock = conn[0]
         sock.setblocking(False)
@@ -832,11 +837,15 @@ class TCPService(object):
         self._source.attach(sock)
 
     def terminate(self):
-        if self._step == STEP_CONNECT:
-            self._controller._dnsc.unregister(self.handle_address)
-
         if self._step == STEP_TERMINATE:
             return
+
+        self._clear_address_wait()
+        self._clear_connect_wait()
+
+        if self._step == STEP_CONNECT:
+            self._controller._dnsc.unregister(self.address_complete)
+
         self._step = STEP_TERMINATE
         if self._source:
             self._source.close()
@@ -847,13 +856,33 @@ class TCPService(object):
 
         del self._controller._services[id(self)]
 
+    def _clear_address_wait(self):
+        if self._address_wait:
+            self._address_wait = False
+            self._controller._loop.remove_timer(self.address_timeout)
+
+    def _clear_connect_wait(self):
+        if self._connect_wait:
+            self._connect_wait = False
+            self._controller._loop.remove_timer(self.connect_timeout)
+
     def connect(self, addr, port):
         self._step = STEP_CONNECT
         self._target_addr = (addr, port)
-        self._controller._dnsc.register(self.handle_address, addr)
+        self._address_wait = True
+        self._controller._loop.add_timer(self.address_timeout)
+        self._controller._dnsc.register(self.address_complete, addr)
 
     def handle_connect(self, error):
         pass
+
+    def connect_timeout(self):
+        if self._step == STEP_TERMINATE:
+            return
+
+        if self._step == STEP_CONNECT:
+            logging.debug("connect timeout")
+            self.terminate()
 
     def handle_read(self, ssock, data):
         pass
@@ -863,11 +892,15 @@ class TCPService(object):
             return
         if ssock == self._target:
             if self._step == STEP_CONNECT:
+                self._clear_connect_wait()
                 self.handle_connect(ssock.has_error())
 
-    def handle_address(self, hostname, ip):
+    def address_complete(self, hostname, ip):
         if self._step == STEP_TERMINATE:
             return
+
+        self._clear_address_wait()
+
         if not ip:
             logging.debug("dns error: %s", hostname)
             self.terminate()
@@ -882,11 +915,23 @@ class TCPService(object):
         sock.setblocking(False)
         sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
         self._target.attach(sock, STATUS_WRITE)
+        self._connect_wait = True
+        self._controller._loop.add_timer(self.connect_timeout)
         try:
             sock.connect(sa)
         except (OSError, IOError) as e:
             if errno_at_exc(e) == errno.EINPROGRESS:
                 pass
+            else:
+                logging.error("connect: %s, e")
+
+    def address_timeout(self):
+        if self._step == STEP_TERMINATE:
+            return
+
+        if self._step == STEP_CONNECT:
+            logging.debug("dns timeout")
+            self.terminate()
 
 
 class TCPController(LoopHandler):
@@ -973,16 +1018,16 @@ class RemoteService(TCPService):
         if ssock == self._source:
             if self._step == STEP_INIT:
                 size = len(data)
-                if size < 3 or data[0] != 'G' or data[1] != 'E' or data[2] != 'T':
+                if size < 7 or f4str(data[:3]) != "GET":
                     raise Exception("http header")
                 raw = data.find("\r\n\r\n")
                 if raw < 0 or raw + 4 >= size:
                     raise Exception("http package")
 
                 data = self._secret.decrypt(data[raw + 4:])
-                size = len(data)
 
-                if size < 7 or ord(data[0]) != 0x05:
+                size = len(data)
+                if size < 7 or ord(data[0]) != 0x05 or ord(data[2]) != 0x00:
                     raise Exception("socks5 header")
 
                 cmd = ord(data[1])
