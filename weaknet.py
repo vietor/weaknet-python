@@ -409,7 +409,11 @@ def is_ip(address):
 
 
 def get_local_ip():
-    return socket.gethostbyname(socket.gethostname())
+    try:
+        return socket.gethostbyname(socket.gethostname())
+    except (OSError, IOError):
+        pass
+    return "127.0.0.1"
 
 
 def get_sock_error(sock):
