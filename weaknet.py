@@ -883,7 +883,7 @@ class TCPService(object):
         if self._step == STEP_CONNECT:
             if time.time() >= self._connect_wait:
                 logging.debug("connect timeout")
-                self.terminate()
+                self.handle_connect(True)
 
     def handle_read(self, ssock, data):
         pass
@@ -904,13 +904,13 @@ class TCPService(object):
 
         if not ip:
             logging.debug("dns error: %s", hostname)
-            self.terminate()
+            self.handle_connect(True)
             return
 
         sock, sa = get_sock_byaddr(ip, self._target_addr[1])
         if not sock:
             logging.error('addr error: %s:%d' % self._target_addr)
-            self.terminate()
+            self.handle_connect(True)
             return
 
         sock.setblocking(False)
@@ -933,7 +933,7 @@ class TCPService(object):
         if self._step == STEP_CONNECT:
             if time.time() >= self._address_wait:
                 logging.debug("dns timeout")
-                self.terminate()
+                self.handle_connect(True)
 
 
 class TCPController(LoopHandler):
