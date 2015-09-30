@@ -1080,10 +1080,16 @@ class RemoteService(TCPService):
         self._target.set_status(STATUS_READWRITE)
 
 
+PROTOCOL_NONE = 0
+PROTOCOL_SOCKS4 = 1
+PROTOCOL_SOCKS4A = 2
+PROTOCOL_SOCKS5 = 3
+
+
 class LocalService(TCPService):
 
     def __init__(self, controller, conn, options):
-        self._ver = None
+        self._protocol = PROTOCOL_NONE
         self._resp_padding = None
         self._socks5_request = None
         self._remote_addr = options.remote_addr
@@ -1103,9 +1109,11 @@ class LocalService(TCPService):
                 if ver == 0x05:
                     if size < 3:
                         raise Exception("socks5 format")
+                    self._protocol = PROTOCOL_SOCKS5
                     self._step = STEP_ADDRESS
                     self._source.send(b'\x05\00')
-                    # socks4
+
+                # socks4
                 elif ver == 0x04:
                     if size < 9 or ord(data[size - 1]) != 0x0:
                         raise Exception("socks4 format")
@@ -1126,10 +1134,12 @@ class LocalService(TCPService):
                             raise Exception("socks4a header")
                         atyp = 0x03
                         addr = str(data[dpos:size - 1])
+                        self._protocol = PROTOCOL_SOCKS4A
 
                     else:
                         atyp = 0x01
                         addr = socket.inet_ntoa(data[4:8])
+                        self._protocol = PROTOCOL_SOCKS4
 
                     self._socks5_request = b'\x05\01\00' + chr(atyp)
                     if atyp == 0x03:
@@ -1138,21 +1148,17 @@ class LocalService(TCPService):
                         self._socks5_request += socket.inet_aton(addr)
 
                     self._socks5_request += data[2:4]
-
-                    self._ver = 0x04
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
 
                 else:
-                    raise Exception("socksX prototal")
+                    raise Exception("proxy prototal")
 
             elif self._step == STEP_ADDRESS:
                 if size < 7 or ord(data[0]) != 0x05:
                     raise Exception("socks5 header")
 
                 self._resp_padding = data[3:]
-
-                self._ver = 0x05
                 self._socks5_request = data
                 self._source.set_status(STATUS_WRITE)
                 self.connect(self._remote_addr, self._remote_port)
@@ -1177,23 +1183,29 @@ class LocalService(TCPService):
                 self._source.send(self._secret.decrypt(data))
 
     def _connect_error(self):
-        if self._ver == 0x04:
+        data = None
+        if self._protocol in (PROTOCOL_SOCKS4, PROTOCOL_SOCKS4A):
             data = b'\x00\x5b'
-        else:
+        elif self._protocol == PROTOCOL_SOCKS5:
             data = b'\x05\x04\00'
 
-        self._source.send(data + self._resp_padding)
+        if data:
+            self._source.send(data + self._resp_padding)
+
         self._resp_padding = None
         self.terminate()
 
     def _connect_success(self):
-        if self._ver == 0x04:
+        data = None
+        if self._protocol in (PROTOCOL_SOCKS4, PROTOCOL_SOCKS4A):
             data = b'\x00\x5a'
-        else:
+        elif self._protocol == PROTOCOL_SOCKS5:
             data = b'\x05\00\00'
 
         self._step = STEP_TRANSPORT
-        self._source.send(data + self._resp_padding)
+        if data:
+            self._source.send(data + self._resp_padding)
+
         self._resp_padding = None
         self._source.set_status(STATUS_READWRITE)
         self._target.set_status(STATUS_READWRITE)
