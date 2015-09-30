@@ -1264,7 +1264,7 @@ def main(options):
         if is_child:
             run_worker()
         else:
-            def handler(signum, _):
+            def quit_handler(signum, _):
                 for pid in children:
                     try:
                         os.kill(pid, signum)
@@ -1274,17 +1274,46 @@ def main(options):
 
                 sys.exit(0)
 
-            signal.signal(signal.SIGTERM, handler)
-            signal.signal(signal.SIGQUIT, handler)
-            signal.signal(signal.SIGINT, handler)
+            signal.signal(signal.SIGTERM, quit_handler)
+            signal.signal(signal.SIGQUIT, quit_handler)
+            signal.signal(signal.SIGINT, quit_handler)
 
             relay.close()
-            for child in children:
-                os.waitpid(child, 0)
+            for pid in children:
+                os.waitpid(pid, 0)
 
 
 ################################################
 from optparse import *
+
+
+def daemonize():
+    try:
+        pid = os.fork()
+        if pid:
+            sys.exit(0)
+    except OSError as e:
+        logging.error("fork #1: %s", e)
+        sys.exit(1)
+
+    os.setsid()
+    os.chdir("/")
+    os.umask(0)
+    try:
+        pid = os.fork()
+        if pid:
+            sys.exit(0)
+    except OSError as e:
+        logging.error("fork #2: %s", e)
+        sys.exit(1)
+
+    dnull = file("/dev/null", "rw")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.dup2(dnull.fileno(), sys.stdin.fileno())
+    os.dup2(dnull.fileno(), sys.stdout.fileno())
+    os.dup2(dnull.fileno(), sys.stderr.fileno())
+
 
 if __name__ == '__main__':
     parser = OptionParser(version="%prog " + VERSION)
@@ -1341,30 +1370,5 @@ if __name__ == '__main__':
     if not options.daemon or os.name != "posix":
         main(options)
     else:
-        try:
-            pid = os.fork()
-            if pid:
-                sys.exit(0)
-        except OSError as e:
-            logging.error("fork #1: %s", e)
-            sys.exit(1)
-
-        os.setsid()
-        os.chdir("/")
-        os.umask(0)
-        try:
-            pid = os.fork()
-            if pid:
-                sys.exit(0)
-        except OSError as e:
-            logging.error("fork #2: %s", e)
-            sys.exit(1)
-
-        dnull = file("/dev/null", "rw")
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os.dup2(dnull.fileno(), sys.stdin.fileno())
-        os.dup2(dnull.fileno(), sys.stdout.fileno())
-        os.dup2(dnull.fileno(), sys.stderr.fileno())
-
+        daemonize()
         main(options)
