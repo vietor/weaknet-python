@@ -1084,13 +1084,14 @@ PROTOCOL_NONE = 0
 PROTOCOL_SOCKS4 = 1
 PROTOCOL_SOCKS4A = 2
 PROTOCOL_SOCKS5 = 3
+PROTOCOL_CONNECT = 4
 
 
 class LocalService(TCPService):
 
     def __init__(self, controller, conn, options):
         self._protocol = PROTOCOL_NONE
-        self._resp_padding = None
+        self._data_to_cache = None
         self._socks5_request = None
         self._remote_addr = options.remote_addr
         self._remote_port = options.remote_port
@@ -1120,7 +1121,7 @@ class LocalService(TCPService):
                     if ord(data[1]) != 1:  # CONNECT
                         raise Exception("socks4 command")
                     atyp = None
-                    self._resp_padding = data[2:8]
+                    self._data_to_cache = data[2:8]
                     # socks4a
                     if ord(data[4]) == 0 and ord(data[5]) == 0 and ord(data[6]) == 0:
                         dpos = 8
@@ -1151,6 +1152,24 @@ class LocalService(TCPService):
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
 
+                elif size > 24 and str(data[:8]) == "CONNECT ":
+                    pos = data.find(" HTTP/1.1", 8)
+                    if pos < 0:
+                        raise Exception("connect header")
+                    host = data[8:pos]
+                    pos = host.rfind(":")
+                    if pos < 1 or pos >= len(host) - 1:
+                        raise Exception("connect host:port")
+                    addr = host[:pos]
+                    port = int(host[pos + 1:])
+
+                    self._protocol = PROTOCOL_CONNECT
+                    self._socks5_request = b'\x05\01\00\03' + \
+                                           chr(len(addr)) + addr + \
+                                           struct.pack('>H', port)
+                    self._source.set_status(STATUS_WRITE)
+                    self.connect(self._remote_addr, self._remote_port)
+
                 else:
                     raise Exception("proxy prototal")
 
@@ -1158,7 +1177,7 @@ class LocalService(TCPService):
                 if size < 7 or ord(data[0]) != 0x05:
                     raise Exception("socks5 header")
 
-                self._resp_padding = data[3:]
+                self._data_to_cache = data[3:]
                 self._socks5_request = data
                 self._source.set_status(STATUS_WRITE)
                 self.connect(self._remote_addr, self._remote_port)
@@ -1185,28 +1204,32 @@ class LocalService(TCPService):
     def _connect_error(self):
         data = None
         if self._protocol in (PROTOCOL_SOCKS4, PROTOCOL_SOCKS4A):
-            data = b'\x00\x5b'
+            data = b'\x00\x5b' + self._data_to_cache
         elif self._protocol == PROTOCOL_SOCKS5:
-            data = b'\x05\x04\00'
+            data = b'\x05\x04\00' + self._data_to_cache
+        elif self._protocol == PROTOCOL_CONNECT:
+            data = f4bytes("HTTP/1.1 407 Unauthorized\r\n\r\n")
 
         if data:
-            self._source.send(data + self._resp_padding)
+            self._source.send(data)
 
-        self._resp_padding = None
+        self._data_to_cache = None
         self.terminate()
 
     def _connect_success(self):
         data = None
         if self._protocol in (PROTOCOL_SOCKS4, PROTOCOL_SOCKS4A):
-            data = b'\x00\x5a'
+            data = b'\x00\x5a' + self._data_to_cache
         elif self._protocol == PROTOCOL_SOCKS5:
-            data = b'\x05\00\00'
+            data = b'\x05\00\00' + self._data_to_cache
+        elif self._protocol == PROTOCOL_CONNECT:
+            data = f4bytes("HTTP/1.1 200 Connection Established\r\n\r\n")
 
         self._step = STEP_TRANSPORT
         if data:
-            self._source.send(data + self._resp_padding)
+            self._source.send(data)
 
-        self._resp_padding = None
+        self._data_to_cache = None
         self._source.set_status(STATUS_READWRITE)
         self._target.set_status(STATUS_READWRITE)
 
