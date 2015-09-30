@@ -828,8 +828,8 @@ class TCPService(object):
         self._source_addr = conn[1]
         self._target = TCPServiceSocket(controller._loop, self)
         self._target_addr = None
-        self._address_wait = False
-        self._connect_wait = False
+        self._address_wait = 0
+        self._connect_wait = 0
 
         sock = conn[0]
         sock.setblocking(False)
@@ -857,19 +857,19 @@ class TCPService(object):
         del self._controller._services[id(self)]
 
     def _clear_address_wait(self):
-        if self._address_wait:
-            self._address_wait = False
+        if self._address_wait > 0:
+            self._address_wait = 0
             self._controller._loop.remove_timer(self.address_timeout)
 
     def _clear_connect_wait(self):
-        if self._connect_wait:
-            self._connect_wait = False
+        if self._connect_wait > 0:
+            self._connect_wait = 0
             self._controller._loop.remove_timer(self.connect_timeout)
 
     def connect(self, addr, port):
         self._step = STEP_CONNECT
         self._target_addr = (addr, port)
-        self._address_wait = True
+        self._address_wait = time.time() + TIMEOUT_OF_TIMER
         self._controller._loop.add_timer(self.address_timeout)
         self._controller._dnsc.register(self.address_complete, addr)
 
@@ -881,8 +881,9 @@ class TCPService(object):
             return
 
         if self._step == STEP_CONNECT:
-            logging.debug("connect timeout")
-            self.terminate()
+            if time.time() >= self._connect_wait:
+                logging.debug("connect timeout")
+                self.terminate()
 
     def handle_read(self, ssock, data):
         pass
@@ -915,7 +916,7 @@ class TCPService(object):
         sock.setblocking(False)
         sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
         self._target.attach(sock, STATUS_WRITE)
-        self._connect_wait = True
+        self._connect_wait = time.time() + TIMEOUT_OF_TIMER
         self._controller._loop.add_timer(self.connect_timeout)
         try:
             sock.connect(sa)
@@ -930,8 +931,9 @@ class TCPService(object):
             return
 
         if self._step == STEP_CONNECT:
-            logging.debug("dns timeout")
-            self.terminate()
+            if time.time() >= self._address_wait:
+                logging.debug("dns timeout")
+                self.terminate()
 
 
 class TCPController(LoopHandler):
