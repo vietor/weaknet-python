@@ -1183,6 +1183,7 @@ class LocalService(TCPService):
             data = b'\x05\x04\00'
 
         self._source.send(data + self._resp_padding)
+        self._resp_padding = None
         self.terminate()
 
     def _connect_success(self):
@@ -1193,6 +1194,7 @@ class LocalService(TCPService):
 
         self._step = STEP_TRANSPORT
         self._source.send(data + self._resp_padding)
+        self._resp_padding = None
         self._source.set_status(STATUS_READWRITE)
         self._target.set_status(STATUS_READWRITE)
 
@@ -1207,6 +1209,7 @@ class LocalService(TCPService):
             self._step = STEP_RELAYING
             self._target.send(data +
                               self._secret.encrypt(self._socks5_request))
+            self._socks5_request = None
             self._target.set_status(STATUS_READ)
 
 
