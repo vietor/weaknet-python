@@ -1413,19 +1413,19 @@ if __name__ == '__main__':
     parser.add_option("-m", "--algorithm",
                       type="choice", dest="algorithm", default="fool",
                       choices=algorithm_choices,
-                      help="algorithm for transport: " + ", ".join(algorithm_choices))
+                      help="algorithm for transport: " + ", ".join(algorithm_choices) + " [default: %default]")
     parser.add_option("-s", "--secret",
                       dest="secret",
                       help="secret for transport")
     parser.add_option("-w", "--workers",
                       type="int", dest="workers", default=2,
-                      help="start worker count (Unix/Linux)")
+                      help="start worker count (Unix/Linux) [default: %default]")
     parser.add_option("-B", "--bufsize",
                       type="int", dest="bufsize", default=32,
-                      help="network buffer size (KB)")
+                      help="network buffer size (KB) [default: %default]")
     parser.add_option("-D", "--dns-bufsize",
                       type="int", dest="dns_bufsize", default=4,
-                      help="DNS buffer size (KB)")
+                      help="DNS buffer size (KB) [default: %default]")
     parser.add_option("-d", "--daemon",
                       action="store_true", dest="daemon", default=False,
                       help="start as daemon process (Unix/Linux)")
