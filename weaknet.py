@@ -398,6 +398,13 @@ STATUS_READ = 1
 STATUS_WRITE = 2
 STATUS_READWRITE = STATUS_READ | STATUS_WRITE
 
+ACTION_SET = 0
+ACTION_ADD = 1
+ACTION_DEL = 2
+
+TRAFFIC_OK = 0
+TRAFFIC_BLOCK = 1
+
 
 def is_ip(address):
     for family in (socket.AF_INET, socket.AF_INET6):
@@ -720,9 +727,6 @@ class TCPServiceSocket(object):
     def send(self, data):
         self._write(data)
 
-    def set_status(self, status):
-        self._update_status(status)
-
     def close(self):
         if not self._sock:
             return
@@ -746,11 +750,28 @@ class TCPServiceSocket(object):
             event |= POLL_IN
         return event
 
-    def _update_status(self, status):
-        if self._status == status:
+    def set_status(self, status, action=ACTION_SET):
+        if not self._sock:
             return
-        self._status = status
-        self._loop.modify(self._sock, self._make_event(status))
+        self._update_status(status, action)
+
+    def _update_status(self, status, action):
+        update = self._status
+        if action == ACTION_ADD:
+            if update & status == status:
+                return
+            update |= status
+        elif action == ACTION_DEL:
+            if update & status == 0:
+                return
+            update &= ~status
+        else:
+            if update == status:
+                return
+            update = status
+
+        self._status = update
+        self._loop.modify(self._sock, self._make_event(update))
 
     def _write(self, data):
         if not data:
@@ -777,9 +798,9 @@ class TCPServiceSocket(object):
 
         if incomplete:
             self._data_to_write.append(data)
-            self._update_status(STATUS_WRITE)
-        else:
-            self._update_status(STATUS_READ)
+
+        self._service.handle_traffic(self,
+                                     TRAFFIC_BLOCK if incomplete else TRAFFIC_OK)
 
     def _on_event_read(self):
         data = None
@@ -804,12 +825,12 @@ class TCPServiceSocket(object):
         self._service.handle_write(self)
         if not self._sock:
             return
-        if self._data_to_write:
+        if len(self._data_to_write) > 0:
             data = b''.join(self._data_to_write)
             self._data_to_write = []
             self._write(data)
         else:
-            self._update_status(STATUS_READ)
+            self._service.handle_traffic(self, TRAFFIC_OK)
 
     def _on_event_error(self):
         if self._sock:
@@ -876,6 +897,16 @@ class TCPService(object):
 
     def handle_connect(self, error):
         pass
+
+    def handle_traffic(self, ssock, flag):
+        if flag == TRAFFIC_BLOCK:
+            action = ACTION_DEL
+        else:
+            action = ACTION_ADD
+        if ssock == self._source:
+            self._target.set_status(STATUS_READ, action)
+        elif ssock == self._target:
+            self._source.set_status(STATUS_READ, action)
 
     def connect_timeout(self):
         if self._step == STEP_TERMINATE:
@@ -1285,13 +1316,12 @@ class LocalService(TCPService):
         else:
             data = f4bytes("GET / HTTP 1.1" +
                            "\r\nAccept: */*" +
-                           "\r\nContent-Length: 0" +
                            "\r\n\r\n")
             self._step = STEP_RELAYING
             self._target.send(data +
                               self._secret.encrypt(self._socks5_request))
             self._socks5_request = None
-            self._target.set_status(STATUS_READ)
+            self._target.set_status(STATUS_READ, ACTION_ADD)
 
 
 ################################################
