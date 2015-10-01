@@ -756,8 +756,6 @@ class TCPServiceSocket(object):
         self._set_status(status, action)
 
     def _set_status(self, status, action):
-        if not self._sock:
-            return
         update = self._status
         if action == ACTION_ADD:
             if update & status == status:
@@ -766,7 +764,7 @@ class TCPServiceSocket(object):
         elif action == ACTION_DEL:
             if update & status == 0:
                 return
-            update &= ~status
+            update &= (~status)
         else:
             if update == status:
                 return
@@ -776,9 +774,6 @@ class TCPServiceSocket(object):
         self._loop.modify(self._sock, self._make_event(update))
 
     def _write(self, data):
-        if not data:
-            return
-
         incomplete = False
         if len(self._data_to_write) > 0:
             incomplete = True
@@ -800,6 +795,7 @@ class TCPServiceSocket(object):
 
         if incomplete:
             self._data_to_write.append(data)
+            self._set_status(STATUS_WRITE, ACTION_ADD)
             self._service.handle_traffic(self, TRAFFIC_BLOCK)
 
     def _on_event_read(self):
@@ -900,14 +896,12 @@ class TCPService(object):
         pass
 
     def handle_traffic(self, ssock, traffic):
-        if self._step != STEP_TRANSPORT:
-            return
         if traffic == TRAFFIC_BLOCK:
             if ssock == self._source:
                 self._target.set_status(STATUS_READ, ACTION_DEL)
             elif ssock == self._target:
                 self._source.set_status(STATUS_READ, ACTION_DEL)
-        else:
+        elif traffic == TRAFFIC_IDLE:
             if ssock == self._source:
                 self._target.set_status(STATUS_READ, ACTION_ADD)
             elif ssock == self._target:
@@ -919,7 +913,7 @@ class TCPService(object):
 
         if self._step == STEP_CONNECT:
             if time.time() >= self._connect_wait:
-                logging.debug("connect timeout")
+                logging.debug("connect timeout %s:%d" % self._target_addr)
                 self.handle_connect(True)
 
     def handle_read(self, ssock, data):
@@ -961,7 +955,7 @@ class TCPService(object):
             if errno_at_exc(e) == errno.EINPROGRESS:
                 pass
             else:
-                logging.error("connect: %s, e")
+                logging.error("connect: %s", e)
 
     def address_timeout(self):
         if self._step == STEP_TERMINATE:
@@ -969,7 +963,7 @@ class TCPService(object):
 
         if self._step == STEP_CONNECT:
             if time.time() >= self._address_wait:
-                logging.debug("dns timeout")
+                logging.debug("dns timeout %s:%d" % self._target_addr)
                 self.handle_connect(True)
 
 
