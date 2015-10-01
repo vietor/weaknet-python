@@ -3,7 +3,7 @@
 from __future__ import division, print_function, with_statement
 
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 
 DEFAULT_LOCAL_PORT = 51080
 DEFAULT_REMOTE_PORT = 58080
@@ -1450,7 +1450,7 @@ if __name__ == '__main__':
                       type="int", dest="workers", default=2,
                       help="start worker count (Unix/Linux) [default: %default]")
     parser.add_option("-B", "--bufsize",
-                      type="int", dest="bufsize", default=16,
+                      type="int", dest="bufsize", default=32,
                       help="network buffer size (KB) [default: %default]")
     parser.add_option("-D", "--dns-bufsize",
                       type="int", dest="dns_bufsize", default=4,
