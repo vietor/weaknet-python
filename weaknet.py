@@ -402,7 +402,7 @@ ACTION_SET = 0
 ACTION_ADD = 1
 ACTION_DEL = 2
 
-TRAFFIC_OK = 0
+TRAFFIC_IDLE = 0
 TRAFFIC_BLOCK = 1
 
 
@@ -753,6 +753,11 @@ class TCPServiceSocket(object):
     def set_status(self, status, action=ACTION_SET):
         if not self._sock:
             return
+        self._set_status(status, action)
+
+    def _set_status(self, status, action):
+        if not self._sock:
+            return
         update = self._status
         if action == ACTION_ADD:
             if update & status == status:
@@ -795,9 +800,7 @@ class TCPServiceSocket(object):
 
         if incomplete:
             self._data_to_write.append(data)
-
-        self._service.handle_traffic(self,
-                                     TRAFFIC_BLOCK if incomplete else TRAFFIC_OK)
+            self._service.handle_traffic(self, TRAFFIC_BLOCK)
 
     def _on_event_read(self):
         data = None
@@ -827,7 +830,8 @@ class TCPServiceSocket(object):
             self._data_to_write = []
             self._write(data)
         else:
-            self._service.handle_traffic(self, TRAFFIC_OK)
+            self._set_status(STATUS_WRITE, ACTION_DEL)
+            self._service.handle_traffic(self, TRAFFIC_IDLE)
 
     def _on_event_error(self):
         if self._sock:
@@ -895,14 +899,14 @@ class TCPService(object):
     def handle_connect(self, error):
         pass
 
-    def handle_traffic(self, ssock, flag):
-        if flag == TRAFFIC_BLOCK:
+    def handle_traffic(self, ssock, traffic):
+        if self._step != STEP_TRANSPORT:
+            return
+        if traffic == TRAFFIC_BLOCK:
             if ssock == self._source:
                 self._target.set_status(STATUS_READ, ACTION_DEL)
-                self._source.set_status(STATUS_WRITE, ACTION_ADD)
             elif ssock == self._target:
                 self._source.set_status(STATUS_READ, ACTION_DEL)
-                self._target.set_status(STATUS_WRITE, ACTION_ADD)
         else:
             if ssock == self._source:
                 self._target.set_status(STATUS_READ, ACTION_ADD)
