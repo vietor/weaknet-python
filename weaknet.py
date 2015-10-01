@@ -47,7 +47,7 @@ def errno_at_exc(e):
         return None
 
 
-logging.basicConfig(level=logging.DEBUG, format="%(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(message)s")
 
 ################################################
 import collections
@@ -616,7 +616,6 @@ class DNSController(LoopHandler):
                 self._handle_read(data)
             except Exception as e:
                 logging.error("dns handle: %s", e)
-                pass
 
     def _handle_read(self, data):
         response = dns_parse_response(data)
