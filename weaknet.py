@@ -753,9 +753,6 @@ class TCPServiceSocket(object):
     def set_status(self, status, action=ACTION_SET):
         if not self._sock:
             return
-        self._update_status(status, action)
-
-    def _update_status(self, status, action):
         update = self._status
         if action == ACTION_ADD:
             if update & status == status:
@@ -900,13 +897,17 @@ class TCPService(object):
 
     def handle_traffic(self, ssock, flag):
         if flag == TRAFFIC_BLOCK:
-            action = ACTION_DEL
+            if ssock == self._source:
+                self._target.set_status(STATUS_READ, ACTION_DEL)
+                self._source.set_status(STATUS_WRITE, ACTION_ADD)
+            elif ssock == self._target:
+                self._source.set_status(STATUS_READ, ACTION_DEL)
+                self._target.set_status(STATUS_WRITE, ACTION_ADD)
         else:
-            action = ACTION_ADD
-        if ssock == self._source:
-            self._target.set_status(STATUS_READ, action)
-        elif ssock == self._target:
-            self._source.set_status(STATUS_READ, action)
+            if ssock == self._source:
+                self._target.set_status(STATUS_READ, ACTION_ADD)
+            elif ssock == self._target:
+                self._source.set_status(STATUS_READ, ACTION_ADD)
 
     def connect_timeout(self):
         if self._step == STEP_TERMINATE:
