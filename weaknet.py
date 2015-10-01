@@ -133,6 +133,7 @@ POLL_HUP = 0x10
 POLL_NVAL = 0x20
 
 TIMEOUT_OF_TIMER = 5
+TIMEOUT_OF_ACTION = 7
 
 
 class SelectAsPoll(object):
@@ -378,9 +379,6 @@ import socket
 import struct
 import random
 
-HOSTBUF_SIZE = 4 * 1024
-DATABUF_SIZE = 32 * 1024
-
 QTYPE_ANY = 255
 QTYPE_A = 1
 QTYPE_AAAA = 28
@@ -567,9 +565,10 @@ def dns_parse_response(data):
 
 class DNSController(LoopHandler):
 
-    def __init__(self, servers=['8.8.4.4', '8.8.8.8']):
+    def __init__(self, bufsize, servers=['8.8.4.4', '8.8.8.8']):
         self._loop = None
         self._servers = servers
+        self._bufsize = bufsize * 1024
         self._cache = LRUCache(timeout=300)
         self._hostname_qtypes = {}
         self._hostname_callbacks = {}
@@ -610,7 +609,7 @@ class DNSController(LoopHandler):
             self._loop.add(self._sock, POLL_IN | POLL_ERR, self)
         else:
             try:
-                data, addr = sock.recvfrom(HOSTBUF_SIZE)
+                data, addr = sock.recvfrom(self._bufsize)
                 if addr[0] not in self._servers:
                     logging.warn('received a packet unkonw dns')
                     return
@@ -698,9 +697,10 @@ class DNSController(LoopHandler):
 
 class TCPServiceSocket(object):
 
-    def __init__(self, loop, service):
+    def __init__(self, loop, service, bufsize):
         self._loop = loop
         self._service = service
+        self._bufsize = bufsize * 1024
         self._sock = None
         self._status = STATUS_INIT
         self._data_to_write = []
@@ -785,7 +785,7 @@ class TCPServiceSocket(object):
     def _on_event_read(self):
         data = None
         try:
-            data = self._sock.recv(DATABUF_SIZE)
+            data = self._sock.recv(self._bufsize)
         except (OSError, IOError) as e:
             if errno_at_exc(e) in \
                (errno.ETIMEDOUT, errno.EAGAIN, errno.EWOULDBLOCK):
@@ -824,9 +824,11 @@ class TCPService(object):
         self._controller = controller
         self._step = STEP_INIT
         self._controller._services[id(self)] = self
-        self._source = TCPServiceSocket(controller._loop, self)
+        self._source = TCPServiceSocket(controller._loop, self,
+                                        options.bufsize)
         self._source_addr = conn[1]
-        self._target = TCPServiceSocket(controller._loop, self)
+        self._target = TCPServiceSocket(controller._loop, self,
+                                        options.bufsize)
         self._target_addr = None
         self._address_wait = 0
         self._connect_wait = 0
@@ -869,7 +871,7 @@ class TCPService(object):
     def connect(self, addr, port):
         self._step = STEP_CONNECT
         self._target_addr = (addr, port)
-        self._address_wait = time.time() + TIMEOUT_OF_TIMER
+        self._address_wait = time.time() + TIMEOUT_OF_ACTION
         self._controller._loop.add_timer(self.address_timeout)
         self._controller._dnsc.register(self.address_complete, addr)
 
@@ -916,7 +918,7 @@ class TCPService(object):
         sock.setblocking(False)
         sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
         self._target.attach(sock, STATUS_WRITE)
-        self._connect_wait = time.time() + TIMEOUT_OF_TIMER
+        self._connect_wait = time.time() + TIMEOUT_OF_ACTION
         self._controller._loop.add_timer(self.connect_timeout)
         try:
             sock.connect(sa)
@@ -1306,7 +1308,7 @@ def main(options):
     def run_worker():
         try:
             loop = EventLoop()
-            dnsc = DNSController()
+            dnsc = DNSController(options.dns_bufsize)
 
             dnsc.bind(loop)
             relay.bind(loop, dnsc)
@@ -1417,8 +1419,14 @@ if __name__ == '__main__':
                       dest="secret",
                       help="secret for transport")
     parser.add_option("-w", "--workers",
-                      type="int", dest="workers", default="2",
+                      type="int", dest="workers", default=2,
                       help="start worker count (Unix/Linux)")
+    parser.add_option("-B", "--bufsize",
+                      type="int", dest="bufsize", default=32,
+                      help="network buffer size (KB)")
+    parser.add_option("-D", "--dns-bufsize",
+                      type="int", dest="dns_bufsize", default=4,
+                      help="DNS buffer size (KB)")
     parser.add_option("-d", "--daemon",
                       action="store_true", dest="daemon", default=False,
                       help="start as daemon process (Unix/Linux)")
