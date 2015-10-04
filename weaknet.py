@@ -706,11 +706,11 @@ class DNSController(LoopHandler):
 
 class TCPServiceSocket(object):
 
-    def __init__(self, loop, service, bufsize):
+    def __init__(self, loop, service, bufsize, block_bufsize):
         self._loop = loop
         self._service = service
         self._bufsize = bufsize * 1024
-        self._blocksize = bufsize * 1024 * 64
+        self._block_bufsize = block_bufsize * 1024
         self._sock = None
         self._status = STATUS_INIT
         self._traffic = TRAFFIC_IDLE
@@ -812,7 +812,7 @@ class TCPServiceSocket(object):
             self._data_to_write.append(data)
             self._nbytes_to_write += len(data)
             self._set_status(STATUS_WRITE, ACTION_ADD)
-            if self._nbytes_to_write >= self._blocksize:
+            if self._nbytes_to_write >= self._block_bufsize:
                 self._set_traffic(TRAFFIC_BLOCK)
         else:
             self._set_traffic(TRAFFIC_IDLE)
@@ -891,10 +891,10 @@ class TCPService(object):
         self._step = STEP_INIT
         self._controller._services[id(self)] = self
         self._source = TCPServiceSocket(controller._loop, self,
-                                        options.bufsize)
+                                        options.bufsize, options.block_bufsize)
         self._source_addr = NetAddr(conn[1])
         self._target = TCPServiceSocket(controller._loop, self,
-                                        options.bufsize)
+                                        options.bufsize, options.block_bufsize)
         self._target_addr = None
         self._address_wait = 0
         self._connect_wait = 0
@@ -1514,6 +1514,9 @@ if __name__ == '__main__':
     parser.add_option("-D", "--dns-bufsize",
                       type="int", dest="dns_bufsize", default=4,
                       help="DNS buffer size (KB) [default: %default]")
+    parser.add_option("-K", "--block-bufsize",
+                      type="int", dest="block_bufsize", default=2048,
+                      help="network block buffer size (KB) [default: %default]")
     parser.add_option("-d", "--daemon",
                       action="store_true", dest="daemon", default=False,
                       help="start as daemon process (Unix/Linux)")
