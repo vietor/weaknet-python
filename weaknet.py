@@ -845,9 +845,10 @@ class TCPServiceSocket(object):
             self._set_status(STATUS_WRITE, ACTION_DEL)
 
     def _on_event_error(self):
-        if self._sock:
-            logging.error("sock error: %s", get_sock_error(self._sock))
-            self._service.terminate()
+        if not self._sock:
+            return
+        logging.error("sock error: %s", get_sock_error(self._sock))
+        self._service.terminate()
 
 
 CONNECT_SUCCESS = 0
@@ -992,14 +993,12 @@ class TCPService(object):
             logging.debug("dns bad: %s", hostname)
             self.handle_connect(CONNECT_BADDNS)
             return
-
         self._target_addr.set_ip(ip)
         sock, sa = get_sock_byaddr(ip, self._target_addr.port)
         if not sock:
             logging.error('addr bad: %s', self._target_addr)
             self.handle_connect(CONNECT_BADDNS)
             return
-
         sock.setblocking(False)
         sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
         self._target.attach(sock, STATUS_WRITE)
@@ -1009,8 +1008,6 @@ class TCPService(object):
         except (OSError, IOError) as e:
             if errno_at_exc(e) == errno.EINPROGRESS:
                 pass
-            else:
-                logging.error("connect: %s", e)
 
     def address_timeout(self):
         if self._step == STEP_TERMINATE:
@@ -1106,7 +1103,7 @@ class RemoteService(TCPService):
         if ssock == self._source:
             if self._step == STEP_INIT:
                 size = len(data)
-                if size < 7 or f4str(data[:3]) != "GET":
+                if size < 8 or f4str(data[:4]) != "POST":
                     raise Exception("http header")
                 raw = data.find("\r\n\r\n")
                 if raw < 0 or raw + 4 >= size:
@@ -1405,8 +1402,10 @@ class LocalService(TCPService):
         if code != CONNECT_SUCCESS:
             self._connect_error()
         else:
-            data = f4bytes("GET / HTTP 1.1" +
-                           "\r\nAccept: */*" +
+            size = long((0.3 + random.random()) * 1024 * 1024 * 1024)
+            data = f4bytes("POST /u HTTP 1.1" +
+                           "\n\rContent-Length: " + str(size) +
+                           "\r\nContent-Type: application/octet-stream" +
                            "\r\n\r\n")
             self._step = STEP_RELAYING
             self._target.send(data +
