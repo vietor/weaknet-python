@@ -1183,6 +1183,18 @@ def split_host(host):
         return (host[:pos], int(host[pos + 1:]))
 
 
+def make_socks5_connect(atyp, addr, port):
+    data = b'\x05\01\00' + chr(atyp)
+    if atyp == 0x03:
+        data += chr(len(addr)) + addr
+    else:
+        data += socket.inet_aton(addr)
+    if type(port) != int:
+        return data + port
+    else:
+        return data + struct.pack(">H", port)
+
+
 class LocalService(TCPService):
 
     def __init__(self, controller, conn, options):
@@ -1217,19 +1229,28 @@ class LocalService(TCPService):
                         raise Exception("socks4 format")
                     if ord(data[1]) != 1:  # CONNECT
                         raise Exception("socks4 command")
-                    atyp = None
-                    self._data_to_resp = data[2:8]
+                    pos = 7
+                    found = False
+                    while pos < size:
+                        if ord(data[pos]) == 0x00:
+                            found = True
+                            break
+                        pos = pos + 1
+                    if not found:
+                        raise Exception("socks4 userid")
+                    rear = pos + 1
                     # socks4a
                     if ord(data[4]) == 0 and ord(data[5]) == 0 and ord(data[6]) == 0:
-                        pos = 8
-                        hhead = False
+                        pos = rear
+                        found = False
                         while pos < size:
-                            pos = pos + 1
                             if ord(data[pos - 1]) == 0x00:
-                                hhead = True
+                                found = True
                                 break
-                        if not hhead or pos + 1 >= size:
-                            raise Exception("socks4a header")
+                            pos = pos + 1
+                        if not found:
+                            raise Exception("socks4a hosthame")
+                        rear = pos + 1
                         atyp = 0x03
                         addr = str(data[pos:size - 1])
                         self._protocol = PROTOCOL_SOCKS4A
@@ -1239,13 +1260,12 @@ class LocalService(TCPService):
                         addr = socket.inet_ntoa(data[4:8])
                         self._protocol = PROTOCOL_SOCKS4
 
-                    self._socks5_request = b'\x05\01\00' + chr(atyp)
-                    if atyp == 0x03:
-                        self._socks5_request += chr(len(addr)) + addr
-                    else:
-                        self._socks5_request += socket.inet_aton(addr)
+                    self._data_to_resp = data[2:8]
+                    if rear > size:
+                        self._data_to_cache = data[rear:]
 
-                    self._socks5_request += data[2:4]
+                    self._socks5_request = make_socks5_connect(
+                        atyp, addr, data[2:4])
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
 
@@ -1259,9 +1279,8 @@ class LocalService(TCPService):
                         raise Exception("connect host:port")
 
                     self._protocol = PROTOCOL_CONNECT
-                    self._socks5_request = b'\x05\01\00\03' + \
-                                           chr(len(addr)) + addr + \
-                                           struct.pack('>H', port)
+                    self._socks5_request = make_socks5_connect(
+                        0x03, addr, port)
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
 
@@ -1292,9 +1311,8 @@ class LocalService(TCPService):
                         port = _port
 
                     self._protocol = PROTOCOL_PROXY
-                    self._socks5_request = b'\x05\01\00\03' + \
-                                           chr(len(addr)) + addr + \
-                                           struct.pack('>H', port)
+                    self._socks5_request = make_socks5_connect(
+                        0x03, addr, port)
                     self._data_to_cache = method + " " + data[epos:]
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
@@ -1306,8 +1324,25 @@ class LocalService(TCPService):
                 if size < 7 or ord(data[0]) != 0x05:
                     raise Exception("socks5 header")
 
-                self._data_to_resp = data[3:]
-                self._socks5_request = data
+                atyp = ord(data[3])
+                if atyp == 0x01:
+                    rear = 10
+                elif atyp == 0x03:
+                    rear = 7 + ord(data[4])
+                elif atyp == 0x04:
+                    rear = 22
+                else:
+                    raise Exception("socks5 address")
+                if rear < size:
+                    raise Exception("socks5 length")
+                elif rear == size:
+                    self._data_to_resp = data[3:]
+                    self._socks5_request = data
+                else:
+                    self._data_to_resp = data[3:rear]
+                    self._data_to_cache = data[rear:]
+                    self._socks5_request = data[:rear]
+
                 self._source.set_status(STATUS_WRITE)
                 self.connect(self._remote_addr, self._remote_port)
 
