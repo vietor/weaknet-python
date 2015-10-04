@@ -710,9 +710,12 @@ class TCPServiceSocket(object):
         self._loop = loop
         self._service = service
         self._bufsize = bufsize * 1024
+        self._blocksize = bufsize * 1024 * 64
         self._sock = None
         self._status = STATUS_INIT
+        self._traffic = TRAFFIC_IDLE
         self._data_to_write = []
+        self._nbytes_to_write = 0
 
     def attach(self, sock, status=STATUS_READ):
         if self._sock:
@@ -776,9 +779,20 @@ class TCPServiceSocket(object):
         self._status = update
         self._loop.modify(self._sock, self._make_event(update))
 
+    def _set_traffic(self, traffic):
+        if self._traffic == traffic:
+            return
+        self._traffic = traffic
+        if traffic == TRAFFIC_BLOCK:
+            self._set_status(STATUS_WRITE, ACTION_ADD)
+            self._service.handle_traffic(self, TRAFFIC_BLOCK)
+        else:
+            self._set_status(STATUS_WRITE, ACTION_DEL)
+            self._service.handle_traffic(self, TRAFFIC_IDLE)
+
     def _write(self, data):
         incomplete = False
-        if len(self._data_to_write) > 0:
+        if self._nbytes_to_write > 0:
             incomplete = True
         else:
             try:
@@ -798,8 +812,11 @@ class TCPServiceSocket(object):
 
         if incomplete:
             self._data_to_write.append(data)
-            self._set_status(STATUS_WRITE, ACTION_ADD)
-            self._service.handle_traffic(self, TRAFFIC_BLOCK)
+            self._nbytes_to_write += len(data)
+            if self._nbytes_to_write >= self._blocksize:
+                self._set_traffic(TRAFFIC_BLOCK)
+        else:
+            self._set_traffic(TRAFFIC_IDLE)
 
     def _on_event_read(self):
         data = None
@@ -824,13 +841,13 @@ class TCPServiceSocket(object):
         self._service.handle_write(self)
         if not self._sock:
             return
-        if len(self._data_to_write) > 0:
+        if self._nbytes_to_write > 0:
             data = b''.join(self._data_to_write)
             self._data_to_write = []
+            self._nbytes_to_write = 0
             self._write(data)
         else:
-            self._set_status(STATUS_WRITE, ACTION_DEL)
-            self._service.handle_traffic(self, TRAFFIC_IDLE)
+            self._set_traffic(TRAFFIC_IDLE)
 
     def _on_event_error(self):
         if self._sock:
