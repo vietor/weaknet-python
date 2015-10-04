@@ -1187,6 +1187,7 @@ class LocalService(TCPService):
 
     def __init__(self, controller, conn, options):
         self._protocol = PROTOCOL_NONE
+        self._data_to_resp = None
         self._data_to_cache = None
         self._socks5_request = None
         self._remote_addr = options.remote_addr
@@ -1217,7 +1218,7 @@ class LocalService(TCPService):
                     if ord(data[1]) != 1:  # CONNECT
                         raise Exception("socks4 command")
                     atyp = None
-                    self._data_to_cache = data[2:8]
+                    self._data_to_resp = data[2:8]
                     # socks4a
                     if ord(data[4]) == 0 and ord(data[5]) == 0 and ord(data[6]) == 0:
                         pos = 8
@@ -1305,7 +1306,7 @@ class LocalService(TCPService):
                 if size < 7 or ord(data[0]) != 0x05:
                     raise Exception("socks5 header")
 
-                self._data_to_cache = data[3:]
+                self._data_to_resp = data[3:]
                 self._socks5_request = data
                 self._source.set_status(STATUS_WRITE)
                 self.connect(self._remote_addr, self._remote_port)
@@ -1332,33 +1333,35 @@ class LocalService(TCPService):
     def _connect_error(self):
         data = None
         if self._protocol in (PROTOCOL_SOCKS4, PROTOCOL_SOCKS4A):
-            data = b'\x00\x5b' + self._data_to_cache
+            data = b'\x00\x5b' + self._data_to_resp
         elif self._protocol == PROTOCOL_SOCKS5:
-            data = b'\x05\x04\00' + self._data_to_cache
+            data = b'\x05\x04\00' + self._data_to_resp
         elif self._protocol in (PROTOCOL_CONNECT, PROTOCOL_PROXY):
             data = f4bytes("HTTP/1.1 407 Unauthorized\r\n\r\n")
 
         if data:
             self._source.send(data)
 
+        self._data_to_resp = None
         self._data_to_cache = None
         self.terminate()
 
     def _connect_success(self):
         data = None
         if self._protocol in (PROTOCOL_SOCKS4, PROTOCOL_SOCKS4A):
-            data = b'\x00\x5a' + self._data_to_cache
+            data = b'\x00\x5a' + self._data_to_resp
         elif self._protocol == PROTOCOL_SOCKS5:
-            data = b'\x05\00\00' + self._data_to_cache
+            data = b'\x05\00\00' + self._data_to_resp
         elif self._protocol == PROTOCOL_CONNECT:
             data = f4bytes("HTTP/1.1 200 Connection Established\r\n\r\n")
-        elif self._protocol == PROTOCOL_PROXY:
-            self._target.send(self._secret.encrypt(self._data_to_cache))
 
         self._step = STEP_TRANSPORT
         if data:
             self._source.send(data)
+        if self._data_to_cache:
+            self._target.send(self._secret.encrypt(self._data_to_cache))
 
+        self._data_to_resp = None
         self._data_to_cache = None
         self._source.set_status(STATUS_READWRITE)
         self._target.set_status(STATUS_READWRITE)
