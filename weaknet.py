@@ -132,8 +132,8 @@ POLL_ERR = 0x08
 POLL_HUP = 0x10
 POLL_NVAL = 0x20
 
-TIMEOUT_OF_TIMER = 5
-TIMEOUT_OF_ACTION = 7
+TIMEOUT_OF_TIMER = 8
+TIMEOUT_OF_ACTION = TIMEOUT_OF_TIMER + 3
 
 
 class SelectAsPoll(object):
@@ -341,13 +341,16 @@ class SecretFool(object):
         if pos < size and size - pos > 8:
             qpos = int(xpos / 8)
             qcnt = int((size - pos) / 8)
+            fmt = "<" + str(qcnt) + "Q"
+            xdata = []
+            qdata = struct.unpack_from(fmt, data, pos)
             for i in range(qcnt):
                 kq = self._qbuff[qpos]
                 qpos = (qpos + 1) % self._qsize
-                sq = struct.unpack_from("<1Q", data, pos)[0]
-                struct.pack_into("<1Q", dest, pos, sq ^ kq)
-                pos += 8
+                xdata.append(qdata[i] ^ kq)
 
+            struct.pack_into(fmt, dest, pos, *xdata)
+            pos += qcnt * 8
             xpos = qpos * 8
 
         if pos < size:
@@ -841,6 +844,29 @@ CONNECT_TIMEOUT = 2
 CONNECT_BADSOCK = 3
 
 
+class NetAddr(object):
+    __slots__ = ('host', 'port', 'ip')
+
+    def __init__(self, host, port=None):
+        if port is None:
+            self.host = host[0]
+            self.port = host[1]
+        else:
+            self.host = host
+            self.port = port
+
+        self.ip = self.host
+
+    def __str__(self):
+        if self.host == self.ip:
+            return '{0}:{1}'.format(self.host, self.port)
+        else:
+            return '{0}({1}):{2}'.format(self.host, self.ip, self.port)
+
+    def set_ip(self, ip):
+        self.ip = ip
+
+
 class TCPService(object):
 
     def __init__(self, controller, conn, options):
@@ -849,7 +875,7 @@ class TCPService(object):
         self._controller._services[id(self)] = self
         self._source = TCPServiceSocket(controller._loop, self,
                                         options.bufsize)
-        self._source_addr = conn[1]
+        self._source_addr = NetAddr(conn[1])
         self._target = TCPServiceSocket(controller._loop, self,
                                         options.bufsize)
         self._target_addr = None
@@ -901,7 +927,7 @@ class TCPService(object):
 
     def connect(self, addr, port):
         self._step = STEP_CONNECT
-        self._target_addr = (addr, port)
+        self._target_addr = NetAddr(addr, port)
         self._set_address_wait(ACTION_ADD)
         self._controller._dnsc.register(self.address_complete, addr)
 
@@ -926,7 +952,7 @@ class TCPService(object):
 
         if self._step == STEP_CONNECT:
             if time.time() >= self._connect_wait:
-                logging.debug("connect timeout %s:%d" % self._target_addr)
+                logging.debug("connect timeout %s", self._target_addr)
                 self.handle_connect(CONNECT_TIMEOUT)
 
     def handle_read(self, ssock, data):
@@ -942,7 +968,7 @@ class TCPService(object):
                     code = CONNECT_BADSOCK
                 else:
                     code = CONNECT_SUCCESS
-                self.handle_connect(code)
+                    self.handle_connect(code)
 
     def address_complete(self, hostname, ip):
         if self._step == STEP_TERMINATE:
@@ -955,9 +981,10 @@ class TCPService(object):
             self.handle_connect(CONNECT_BADDNS)
             return
 
-        sock, sa = get_sock_byaddr(ip, self._target_addr[1])
+        self._target_addr.set_ip(ip)
+        sock, sa = get_sock_byaddr(ip, self._target_addr.port)
         if not sock:
-            logging.error('addr bad: %s:%d' % self._target_addr)
+            logging.error('addr bad: %s', self._target_addr)
             self.handle_connect(CONNECT_BADDNS)
             return
 
@@ -979,7 +1006,7 @@ class TCPService(object):
 
         if self._step == STEP_CONNECT:
             if time.time() >= self._address_wait:
-                logging.debug("dns timeout %s:%d" % self._target_addr)
+                logging.debug("dns timeout %s", self._target_addr)
                 self.handle_connect(CONNECT_TIMEOUT)
 
 
