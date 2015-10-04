@@ -779,14 +779,11 @@ class TCPServiceSocket(object):
         self._status = update
         self._loop.modify(self._sock, self._make_event(update))
 
-    def _set_traffic(self, traffic):
+    def _update_traffic(self, traffic):
         if self._traffic == traffic:
             return
         self._traffic = traffic
-        if traffic == TRAFFIC_BLOCK:
-            self._service.handle_traffic(self, TRAFFIC_BLOCK)
-        else:
-            self._service.handle_traffic(self, TRAFFIC_IDLE)
+        self._service.handle_traffic(self, traffic)
 
     def _write(self, data):
         incomplete = False
@@ -808,14 +805,14 @@ class TCPServiceSocket(object):
                     self._service.terminate()
                     return
 
-        if incomplete:
+        if not incomplete:
+            self._update_traffic(TRAFFIC_IDLE)
+        else:
             self._data_to_write.append(data)
             self._nbytes_to_write += len(data)
             self._set_status(STATUS_WRITE, ACTION_ADD)
             if self._nbytes_to_write >= self._block_bufsize:
-                self._set_traffic(TRAFFIC_BLOCK)
-        else:
-            self._set_traffic(TRAFFIC_IDLE)
+                self._update_traffic(TRAFFIC_BLOCK)
 
     def _on_event_read(self):
         data = None
@@ -828,7 +825,6 @@ class TCPServiceSocket(object):
         if not data:
             self._service.terminate()
             return
-
         try:
             self._service.handle_read(self, data)
         except Exception as e:
@@ -847,7 +843,6 @@ class TCPServiceSocket(object):
             self._write(data)
         else:
             self._set_status(STATUS_WRITE, ACTION_DEL)
-            self._set_traffic(TRAFFIC_IDLE)
 
     def _on_event_error(self):
         if self._sock:
