@@ -957,7 +957,7 @@ class TCPService(object):
 
         sock, sa = get_sock_byaddr(ip, self._target_addr[1])
         if not sock:
-            logging.error('addr error: %s:%d' % self._target_addr)
+            logging.error('addr bad: %s:%d' % self._target_addr)
             self.handle_connect(CONNECT_BADDNS)
             return
 
@@ -1324,8 +1324,8 @@ class LocalService(TCPService):
         self._source.set_status(STATUS_READWRITE)
         self._target.set_status(STATUS_READWRITE)
 
-    def handle_connect(self, error):
-        if error:
+    def handle_connect(self, code):
+        if code != CONNECT_SUCCESS:
             self._connect_error()
         else:
             data = f4bytes("GET / HTTP 1.1" +
