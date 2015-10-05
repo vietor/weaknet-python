@@ -18,23 +18,23 @@ import logging
 import hashlib
 
 
-def f4str(s):
+def xstr(s):
     if bytes != str:
         if type(s) == bytes:
             return s.decode('utf-8')
-    return str(s)
+    return s
 
 
-def f4bytes(s):
+def xbytes(s):
     if bytes != str:
         if type(s) == str:
             return s.encode('utf-8')
-    return bytes(s)
+    return s
 
 
 def sha512(text):
     m = hashlib.sha512()
-    m.update(f4bytes(text))
+    m.update(xbytes(text))
     return m.digest()
 
 
@@ -360,7 +360,7 @@ class SecretFool(object):
                 dest[pos + i] = orig[i] ^ self._bbuff[xpos]
                 xpos = (xpos + 1) % self._bsize
 
-        return (str(dest), xpos)
+        return (dest, xpos)
 
     def encrypt(self, data):
         dest, self._epos = self._xor(data, self._epos)
@@ -412,7 +412,7 @@ TRAFFIC_BLOCK = 1
 def is_ip(address):
     for family in (socket.AF_INET, socket.AF_INET6):
         try:
-            socket.inet_pton(family, f4str(address))
+            socket.inet_pton(family, xstr(address))
             return family
         except (TypeError, ValueError, OSError, IOError) as e:
             pass
@@ -1112,7 +1112,7 @@ class RemoteService(TCPService):
                 try:
                     if pos + 4 == size:
                         raise Exception("socks5 empty")
-                    data = self._secret.decrypt(data[pos + 4:])
+                    data = str(self._secret.decrypt(data[pos + 4:]))
                     size = len(data)
                     if size < 7 or ord(data[0]) != 0x05 or ord(data[2]) != 0x00:
                         raise Exception("socks5 header")
@@ -1139,16 +1139,14 @@ class RemoteService(TCPService):
 
                     addr = data[apos:ppos]
                     port = struct.unpack('>H', data[ppos:rear])[0]
-                    if atyp == 3:
-                        addr = str(addr)
-                    else:
-                        addr = socket.inet_ntoa(bytes(addr))
+                    if atyp != 3:
+                        addr = socket.inet_ntoa(addr)
 
                     self._source.set_status(STATUS_WRITE)
                     self.connect(addr, port)
                 except Exception as e:
                     self._source.send(
-                        f4bytes("HTTP/1.1 403 Forbidden\r\n\r\n"))
+                        xbytes("HTTP/1.1 403 Forbidden\r\n\r\n"))
                     raise e
 
             elif self._step == STEP_TRANSPORT:
@@ -1353,7 +1351,7 @@ class LocalService(TCPService):
 
         elif ssock == self._target:
             if self._step == STEP_RELAYING:
-                data = self._secret.decrypt(data)
+                data = str(self._secret.decrypt(data))
                 size = len(data)
                 if size < 3:
                     raise Exception("resp socks5 size")
@@ -1374,7 +1372,7 @@ class LocalService(TCPService):
         elif self._protocol == PROTOCOL_SOCKS5:
             data = b'\x05\x04\00' + self._data_to_resp
         elif self._protocol in (PROTOCOL_CONNECT, PROTOCOL_PROXY):
-            data = f4bytes("HTTP/1.1 407 Unauthorized\r\n\r\n")
+            data = xbytes("HTTP/1.1 407 Unauthorized\r\n\r\n")
 
         if data:
             self._source.send(data)
@@ -1390,7 +1388,7 @@ class LocalService(TCPService):
         elif self._protocol == PROTOCOL_SOCKS5:
             data = b'\x05\00\00' + self._data_to_resp
         elif self._protocol == PROTOCOL_CONNECT:
-            data = f4bytes("HTTP/1.1 200 Connection Established\r\n\r\n")
+            data = xbytes("HTTP/1.1 200 Connection Established\r\n\r\n")
 
         self._step = STEP_TRANSPORT
         if data:
@@ -1408,10 +1406,10 @@ class LocalService(TCPService):
             self._connect_error()
         else:
             size = long((0.3 + random.random()) * 1024 * 1024 * 1024)
-            data = f4bytes("POST /up HTTP/1.1" +
-                           "\r\nContent-Length: " + str(size) +
-                           "\r\nContent-Type: application/octet-stream" +
-                           "\r\n\r\n")
+            data = xbytes("POST /up HTTP/1.1" +
+                          "\r\nContent-Length: " + str(size) +
+                          "\r\nContent-Type: application/octet-stream" +
+                          "\r\n\r\n")
             self._step = STEP_RELAYING
             self._target.send(data +
                               self._secret.encrypt(self._socks5_request))
@@ -1450,7 +1448,7 @@ def main(options):
 
             loop.run()
         except Exception as e:
-            logging.error("shutodwn on exception: %s", e)
+            logging.error("shutdown on exception: %s", e)
             sys.exit(1)
 
     if options.workers < 2 or os.name != 'posix':
