@@ -18,6 +18,18 @@ import logging
 import hashlib
 
 
+def xord(s):
+    if type(s) == int:
+        return s
+    return ord(s)
+
+
+def xchr(d):
+    if bytes == str:
+        return chr(d)
+    return bytes([d])
+
+
 def xstr(s):
     if bytes != str:
         if type(s) == bytes:
@@ -360,7 +372,7 @@ class SecretFool(object):
                 dest[pos + i] = orig[i] ^ self._bbuff[xpos]
                 xpos = (xpos + 1) % self._bsize
 
-        return (dest, xpos)
+        return (bytes(dest), xpos)
 
     def encrypt(self, data):
         dest, self._epos = self._xor(data, self._epos)
@@ -1103,10 +1115,10 @@ class RemoteService(TCPService):
         if ssock == self._source:
             if self._step == STEP_INIT:
                 size = len(data)
-                pos = data.find(" HTTP/1.1\r\n")
+                pos = data.find(b" HTTP/1.1\r\n")
                 if pos < 0:
                     raise Exception("http header")
-                pos = data.find("\r\n\r\n", pos)
+                pos = data.find(b"\r\n\r\n", pos)
                 if pos < 0:
                     raise Exception("http package")
                 try:
@@ -1270,7 +1282,7 @@ class LocalService(TCPService):
                     self.connect(self._remote_addr, self._remote_port)
 
                 elif size > 24 and str(data[:8]) == "CONNECT ":
-                    pos = data.find(" HTTP/1.1", 8)
+                    pos = data.find(b" HTTP/1.1\r\n", 8)
                     if pos < 0:
                         raise Exception("connect header")
                     host = data[8:pos]
@@ -1285,24 +1297,24 @@ class LocalService(TCPService):
                     self.connect(self._remote_addr, self._remote_port)
 
                 elif size > 16:
-                    pos = data.find(" HTTP/1.1")
+                    pos = data.find(b" HTTP/1.1\r\n")
                     if pos < 1:
                         raise Exception("proxy header")
                     head = data[:pos]
-                    pos = head.find(" http://")
+                    pos = head.find(b" http://")
                     if pos > 0:
                         method = head[:pos]
                         pos += 8
                         port = 80
                     else:
-                        pos = line.find(" https://")
+                        pos = line.find(b" https://")
                         if pos > 0:
                             method = head[:pos]
                             pos += 9
                             port = 443
                     if pos < 1:
                         raise Exception("proxy method")
-                    epos = head.find("/", pos)
+                    epos = head.find(b"/", pos)
                     if epos < 1:
                         raise Exception("proxy path")
                     host = data[pos: epos]
@@ -1313,7 +1325,7 @@ class LocalService(TCPService):
                     self._protocol = PROTOCOL_PROXY
                     self._socks5_request = make_socks5_connect(
                         0x03, addr, port)
-                    self._data_to_cache = method + " " + data[epos:]
+                    self._data_to_cache = method + b" " + data[epos:]
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
 
@@ -1405,7 +1417,7 @@ class LocalService(TCPService):
         if code != CONNECT_SUCCESS:
             self._connect_error()
         else:
-            size = long((0.3 + random.random()) * 1024 * 1024 * 1024)
+            size = int((0.3 + random.random()) * 100 * 1024 * 1024)
             data = xbytes("POST /up HTTP/1.1" +
                           "\r\nContent-Length: " + str(size) +
                           "\r\nContent-Type: application/octet-stream" +
