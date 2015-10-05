@@ -1103,48 +1103,53 @@ class RemoteService(TCPService):
         if ssock == self._source:
             if self._step == STEP_INIT:
                 size = len(data)
-                if size < 8 or f4str(data[:4]) != "POST":
+                pos = data.find(" HTTP/1.1\r\n")
+                if pos < 0:
                     raise Exception("http header")
-                raw = data.find("\r\n\r\n")
-                if raw < 0 or raw + 4 >= size:
+                pos = data.find("\r\n\r\n", pos)
+                if pos < 0:
                     raise Exception("http package")
+                try:
+                    if pos + 4 == size:
+                        raise Exception("socks5 empty")
+                    data = self._secret.decrypt(data[pos + 4:])
+                    size = len(data)
+                    if size < 7 or ord(data[0]) != 0x05 or ord(data[2]) != 0x00:
+                        raise Exception("socks5 header")
+                    cmd = ord(data[1])
+                    if cmd != 1:  # CONNECT
+                        raise Exception("socks5 command")
+                    atyp = ord(data[3])
+                    if atyp == 1:  # IPV4
+                        apos = 4
+                        ppos = apos + 4
+                        rear = ppos + 2
+                    elif atyp == 3:  # Domain
+                        apos = 5
+                        ppos = apos + ord(data[4])
+                        rear = ppos + 2
+                    elif atype == 4:  # IPV6
+                        apos = 4
+                        ppos = apos + 16
+                        rear = ppos + 2
+                    else:
+                        raise Exception("socks5 address")
+                    if rear != size:
+                        raise Exception("socks5 request size")
 
-                data = self._secret.decrypt(data[raw + 4:])
+                    addr = data[apos:ppos]
+                    port = struct.unpack('>H', data[ppos:rear])[0]
+                    if atyp == 3:
+                        addr = str(addr)
+                    else:
+                        addr = socket.inet_ntoa(bytes(addr))
 
-                size = len(data)
-                if size < 7 or ord(data[0]) != 0x05 or ord(data[2]) != 0x00:
-                    raise Exception("socks5 header")
-
-                cmd = ord(data[1])
-                if cmd != 1:  # CONNECT
-                    raise Exception("socks5 command")
-
-                atyp = ord(data[3])
-                if atyp == 1:  # IPV4
-                    apos = 4
-                    ppos = apos + 4
-                    rear = ppos + 2
-                elif atyp == 3:  # Domain
-                    apos = 5
-                    ppos = apos + ord(data[4])
-                    rear = ppos + 2
-                elif atype == 4:  # IPV6
-                    apos = 4
-                    ppos = apos + 16
-                    rear = ppos + 2
-                else:
-                    raise Exception("socks5 address")
-                if rear != size:
-                    raise Exception("socks5 request size")
-
-                raw_addr = data[apos:ppos]
-                if atyp == 3:
-                    raw_addr = str(raw_addr)
-                else:
-                    raw_addr = socket.inet_ntoa(bytes(raw_addr))
-
-                self._source.set_status(STATUS_WRITE)
-                self.connect(raw_addr, struct.unpack('>H', data[ppos:rear])[0])
+                    self._source.set_status(STATUS_WRITE)
+                    self.connect(addr, port)
+                except Exception as e:
+                    self._source.send(
+                        f4bytes("HTTP/1.1 403 Forbidden\r\n\r\n"))
+                    raise e
 
             elif self._step == STEP_TRANSPORT:
                 self._target.send(self._secret.decrypt(data))
@@ -1403,8 +1408,8 @@ class LocalService(TCPService):
             self._connect_error()
         else:
             size = long((0.3 + random.random()) * 1024 * 1024 * 1024)
-            data = f4bytes("POST /u HTTP 1.1" +
-                           "\n\rContent-Length: " + str(size) +
+            data = f4bytes("POST /up HTTP/1.1" +
+                           "\r\nContent-Length: " + str(size) +
                            "\r\nContent-Type: application/octet-stream" +
                            "\r\n\r\n")
             self._step = STEP_RELAYING
