@@ -323,8 +323,6 @@ class EventLoop(object):
                         logging.error('loop timer: %s', e)
 
 ################################################
-
-
 from ctypes import c_char_p, c_int, c_long, byref, create_string_buffer, c_void_p
 
 
@@ -452,9 +450,8 @@ def Rrc4md5Crypto(alg, key, iv, op, key_as_bytes=0, d=None, salt=None,
     return OpenSSLCrypto(b'rc4', rc4_key, b'', op)
 
 secret_cached_keys = {}
-if not libcrypto:
-    secret_method_supported = {}
-else:
+secret_method_supported = {}
+if libcrypto:
     secret_method_supported = {
         'aes-128-cfb': (16, 16, OpenSSLCrypto),
         'aes-192-cfb': (24, 16, OpenSSLCrypto),
@@ -471,7 +468,17 @@ else:
         'aes-128-cfb1': (16, 16, OpenSSLCrypto),
         'aes-192-cfb1': (24, 16, OpenSSLCrypto),
         'aes-256-cfb1': (32, 16, OpenSSLCrypto),
+        'camellia-128-cfb': (16, 16, OpenSSLCrypto),
+        'camellia-192-cfb': (24, 16, OpenSSLCrypto),
+        'camellia-256-cfb': (32, 16, OpenSSLCrypto),
+        'des-cfb': (8, 8, OpenSSLCrypto),
+        'bf-cfb': (16, 8, OpenSSLCrypto),
+        'cast5-cfb': (16, 8, OpenSSLCrypto),
+        'idea-cfb': (16, 8, OpenSSLCrypto),
+        'rc2-cfb': (16, 8, OpenSSLCrypto),
+        'rc4': (16, 0, OpenSSLCrypto),
         'rc4-md5': (16, 16, Rrc4md5Crypto),
+        'seed-cfb': (16, 16, OpenSSLCrypto),
     }
 
 
