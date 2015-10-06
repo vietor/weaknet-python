@@ -44,9 +44,21 @@ def xbytes(s):
     return s
 
 
-def sha512(text):
+def md5(text, *more):
+    m = hashlib.md5()
+    m.update(xbytes(text))
+    if len(more) > 0:
+        for v in more:
+            m.update(xbytes(v))
+    return m.digest()
+
+
+def sha512(text, *more):
     m = hashlib.sha512()
     m.update(xbytes(text))
+    if len(more) > 0:
+        for v in more:
+            m.update(xbytes(v))
     return m.digest()
 
 
@@ -443,11 +455,7 @@ class OpenSSLCrypto(object):
 
 def Rrc4md5Crypto(alg, key, iv, op, key_as_bytes=0, d=None, salt=None,
                   i=1, padding=1):
-    md5 = hashlib.md5()
-    md5.update(key)
-    md5.update(iv)
-    rc4_key = md5.digest()
-    return OpenSSLCrypto(b'rc4', rc4_key, b'', op)
+    return OpenSSLCrypto(b'rc4', md5(key, iv), b'', op)
 
 secret_cached_keys = {}
 secret_method_supported = {}
@@ -490,14 +498,12 @@ def EVP_BytesToKey(password, key_len, iv_len):
     m = []
     i = 0
     while len(b''.join(m)) < (key_len + iv_len):
-        md5 = hashlib.md5()
         data = password
         if i > 0:
             data = m[i - 1] + password
 
-        md5.update(data)
-        m.append(md5.digest())
         i += 1
+        m.append(md5(data))
 
     ms = b''.join(m)
     key = ms[:key_len]
