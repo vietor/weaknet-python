@@ -3,7 +3,7 @@
 from __future__ import division, print_function, with_statement
 
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 DEFAULT_LOCAL_PORT = 51080
 DEFAULT_REMOTE_PORT = 58080
@@ -325,6 +325,233 @@ class EventLoop(object):
 ################################################
 
 
+from ctypes import c_char_p, c_int, c_long, byref, create_string_buffer, c_void_p
+
+
+def find_library(possible_lib_names, search_symbol):
+    import ctypes.util
+    from ctypes import CDLL
+
+    if type(possible_lib_names) not in (list, tuple):
+        possible_lib_names = [possible_lib_names]
+
+    lib_names = []
+    for lib_name in possible_lib_names:
+        lib_names.append(lib_name)
+        lib_names.append('lib' + lib_name)
+
+    paths = []
+    for name in lib_names:
+        if os.name == "nt":
+            for directory in os.environ['PATH'].split(os.pathsep):
+                fname = os.path.join(directory, name)
+                if os.path.isfile(fname):
+                    paths.append(fname)
+                if fname.lower().endswith(".dll"):
+                    continue
+                fname = fname + ".dll"
+                if os.path.isfile(fname):
+                    paths.append(fname)
+        else:
+            path = ctypes.util.find_library(name)
+            if path:
+                paths.append(path)
+    if not paths:
+        import glob
+        for name in lib_names:
+            patterns = [
+                '/usr/local/lib*/lib%s.*' % name,
+                '/usr/lib*/lib%s.*' % name,
+                'lib%s.*' % name,
+                '%s.dll' % name]
+            for pat in patterns:
+                files = glob.glob(pat)
+                if files:
+                    paths.extend(files)
+    for path in paths:
+        try:
+            lib = CDLL(path)
+            if hasattr(lib, search_symbol):
+                return lib
+            else:
+                logging.warn('can\'t find symbol %s in %s',
+                             search_symbol, path)
+        except Exception:
+            pass
+    return None
+
+libcrypto = find_library(('crypto', 'eay32'), 'EVP_get_cipherbyname')
+if libcrypto:
+    libcrypto_buf_size = 2048
+    libcrypto_buf = create_string_buffer(libcrypto_buf_size)
+    libcrypto.EVP_get_cipherbyname.restype = c_void_p
+    libcrypto.EVP_CIPHER_CTX_new.restype = c_void_p
+    libcrypto.EVP_CipherInit_ex.argtypes = (c_void_p, c_void_p,
+                                            c_char_p, c_char_p, c_char_p, c_int)
+    libcrypto.EVP_CipherUpdate.argtypes = (c_void_p, c_void_p,
+                                           c_void_p, c_char_p, c_int)
+    libcrypto.EVP_CIPHER_CTX_cleanup.argtypes = (c_void_p,)
+    libcrypto.EVP_CIPHER_CTX_free.argtypes = (c_void_p,)
+    if hasattr(libcrypto, 'OpenSSL_add_all_ciphers'):
+        libcrypto.OpenSSL_add_all_ciphers()
+
+
+class OpenSSLCrypto(object):
+
+    def __init__(self, cipher_name, key, iv, op):
+        self._ctx = None
+        cipher_name = xbytes(cipher_name)
+        cipher = libcrypto.EVP_get_cipherbyname(cipher_name)
+        if not cipher:
+            func_name = xstr('EVP_' + cipher_name.replace('-', '_'))
+            func_cipher = getattr(libcrypto, func_name, None)
+            if func_cipher:
+                func_cipher.restype = c_void_p
+                cipher = func_cipher()
+
+        if not cipher:
+            raise Exception('cipher %s not found in libcrypto' % cipher_name)
+        key_ptr = c_char_p(key)
+        iv_ptr = c_char_p(iv)
+        self._ctx = libcrypto.EVP_CIPHER_CTX_new()
+        if not self._ctx:
+            raise Exception('can not create cipher context')
+        r = libcrypto.EVP_CipherInit_ex(self._ctx, cipher, None,
+                                        key_ptr, iv_ptr, c_int(op))
+        if not r:
+            self.clean()
+            raise Exception('can not initialize cipher context')
+
+    def update(self, data):
+        global libcrypto_buf, libcrypto_buf_size
+        cipher_out_len = c_long(0)
+        l = len(data)
+        if libcrypto_buf_size < l:
+            libcrypto_buf_size = l * 2
+            libcrypto_buf = create_string_buffer(libcrypto_buf_size)
+
+        libcrypto.EVP_CipherUpdate(self._ctx, byref(libcrypto_buf),
+                                   byref(cipher_out_len), c_char_p(data), l)
+        return libcrypto_buf.raw[:cipher_out_len.value]
+
+    def __del__(self):
+        self.clean()
+
+    def clean(self):
+        if self._ctx:
+            libcrypto.EVP_CIPHER_CTX_cleanup(self._ctx)
+            libcrypto.EVP_CIPHER_CTX_free(self._ctx)
+
+
+def Rrc4md5Crypto(alg, key, iv, op, key_as_bytes=0, d=None, salt=None,
+                  i=1, padding=1):
+    md5 = hashlib.md5()
+    md5.update(key)
+    md5.update(iv)
+    rc4_key = md5.digest()
+    return OpenSSLCrypto(b'rc4', rc4_key, b'', op)
+
+secret_cached_keys = {}
+if not libcrypto:
+    secret_method_supported = {}
+else:
+    secret_method_supported = {
+        'aes-128-cfb': (16, 16, OpenSSLCrypto),
+        'aes-192-cfb': (24, 16, OpenSSLCrypto),
+        'aes-256-cfb': (32, 16, OpenSSLCrypto),
+        'aes-128-ofb': (16, 16, OpenSSLCrypto),
+        'aes-192-ofb': (24, 16, OpenSSLCrypto),
+        'aes-256-ofb': (32, 16, OpenSSLCrypto),
+        'aes-128-ctr': (16, 16, OpenSSLCrypto),
+        'aes-192-ctr': (24, 16, OpenSSLCrypto),
+        'aes-256-ctr': (32, 16, OpenSSLCrypto),
+        'aes-128-cfb8': (16, 16, OpenSSLCrypto),
+        'aes-192-cfb8': (24, 16, OpenSSLCrypto),
+        'aes-256-cfb8': (32, 16, OpenSSLCrypto),
+        'aes-128-cfb1': (16, 16, OpenSSLCrypto),
+        'aes-192-cfb1': (24, 16, OpenSSLCrypto),
+        'aes-256-cfb1': (32, 16, OpenSSLCrypto),
+        'rc4-md5': (16, 16, Rrc4md5Crypto),
+    }
+
+
+def EVP_BytesToKey(password, key_len, iv_len):
+    cached_key = '%s-%d-%d' % (password, key_len, iv_len)
+    r = secret_cached_keys.get(cached_key, None)
+    if r:
+        return r
+    m = []
+    i = 0
+    while len(b''.join(m)) < (key_len + iv_len):
+        md5 = hashlib.md5()
+        data = password
+        if i > 0:
+            data = m[i - 1] + password
+
+        md5.update(data)
+        m.append(md5.digest())
+        i += 1
+
+    ms = b''.join(m)
+    key = ms[:key_len]
+    iv = ms[key_len:key_len + iv_len]
+    secret_cached_keys[cached_key] = (key, iv)
+    return key, iv
+
+
+class SecretEngine(object):
+
+    def __init__(self, key, method):
+        self.key = key
+        self.method = method
+        self.iv = None
+        self.iv_sent = False
+        self.cipher_iv = b''
+        self.decipher = None
+        self._method_info = secret_method_supported.get(method)
+        if self._method_info:
+            self.cipher = self._get_cipher(key, method, 1,
+                                           os.urandom(self._method_info[1]))
+        else:
+            logging.error('method %s not supported' % method)
+            sys.exit(1)
+
+    def _get_cipher(self, password, method, op, iv):
+        password = xbytes(password)
+        m = self._method_info
+        if m[0] > 0:
+            key, iv_ = EVP_BytesToKey(password, m[0], m[1])
+        else:
+            key, iv = password, b''
+
+        iv = iv[:m[1]]
+        if op == 1:
+            self.cipher_iv = iv[:m[1]]
+        return m[2](method, key, iv, op)
+
+    def encrypt(self, buf):
+        if len(buf) == 0:
+            return buf
+        if self.iv_sent:
+            return self.cipher.update(buf)
+        else:
+            self.iv_sent = True
+            return self.cipher_iv + self.cipher.update(buf)
+
+    def decrypt(self, buf):
+        if len(buf) == 0:
+            return buf
+        if self.decipher is None:
+            decipher_iv_len = self._method_info[1]
+            decipher_iv = buf[:decipher_iv_len]
+            self.decipher = self._get_cipher(self.key, self.method, 0,
+                                             iv=decipher_iv)
+            buf = buf[decipher_iv_len:]
+            if len(buf) == 0:
+                return buf
+        return self.decipher.update(buf)
+
+
 class SecretFool(object):
 
     def __init__(self, secret):
@@ -386,7 +613,9 @@ class SecretFool(object):
 def make_secret(algorithm, secret):
     if(algorithm == "fool"):
         return SecretFool(secret)
-    raise Exception("algorithm unsupport")
+    if not secret_method_supported.get(algorithm):
+        raise Exception("algorithm unsupport")
+    return SecretEngine(secret, algorithm)
 
 
 ################################################
@@ -1532,6 +1761,10 @@ def daemonize():
 
 
 if __name__ == '__main__':
+    algorithm_choices = ["fool"]
+    for method in secret_method_supported.keys():
+        algorithm_choices.append(method)
+
     parser = OptionParser(version="%prog " + VERSION)
     role_choices = ["remote", "local"]
     parser.add_option("-r", "--role",
@@ -1544,7 +1777,6 @@ if __name__ == '__main__':
     parser.add_option("-p", "--bind-port",
                       type="int", dest="bind_port", default="0",
                       help="net port for bind")
-    algorithm_choices = ["fool"]
     parser.add_option("-m", "--algorithm",
                       type="choice", dest="algorithm", default="fool",
                       choices=algorithm_choices,
