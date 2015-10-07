@@ -515,7 +515,7 @@ def EVP_BytesToKey(password, key_len, iv_len):
 class SecretEngine(object):
 
     def __init__(self, key, method):
-        self.key = key
+        self.key = xbytes(key)
         self.method = method
         self.iv = None
         self.iv_sent = False
@@ -523,24 +523,22 @@ class SecretEngine(object):
         self.decipher = None
         self._method_info = secret_method_supported.get(method)
         if self._method_info:
-            self.cipher = self._get_cipher(key, method, 1,
-                                           os.urandom(self._method_info[1]))
+            self.cipher = self._get_cipher(1, os.urandom(self._method_info[1]))
         else:
             logging.error('method %s not supported' % method)
             sys.exit(1)
 
-    def _get_cipher(self, password, method, op, iv):
-        password = xbytes(password)
+    def _get_cipher(self, op, iv):
         m = self._method_info
         if m[0] > 0:
-            key, iv_ = EVP_BytesToKey(password, m[0], m[1])
+            key, iv_ = EVP_BytesToKey(self.key, m[0], m[1])
         else:
-            key, iv = password, b''
+            key, iv = self.key, b''
 
         iv = iv[:m[1]]
         if op == 1:
             self.cipher_iv = iv[:m[1]]
-        return m[2](method, key, iv, op)
+        return m[2](self.method, key, iv, op)
 
     def encrypt(self, buf):
         if len(buf) == 0:
@@ -557,15 +555,14 @@ class SecretEngine(object):
         if self.decipher is None:
             decipher_iv_len = self._method_info[1]
             decipher_iv = buf[:decipher_iv_len]
-            self.decipher = self._get_cipher(self.key, self.method, 0,
-                                             iv=decipher_iv)
+            self.decipher = self._get_cipher(0, iv=decipher_iv)
             buf = buf[decipher_iv_len:]
             if len(buf) == 0:
                 return buf
         return self.decipher.update(buf)
 
 
-class SecretFool(object):
+class SecretEasy(object):
 
     def __init__(self, secret):
         buff = sha512(secret)
@@ -624,8 +621,8 @@ class SecretFool(object):
 
 
 def make_secret(algorithm, secret):
-    if(algorithm == "fool"):
-        return SecretFool(secret)
+    if algorithm == "easy":
+        return SecretEasy(secret)
     if not secret_method_supported.get(algorithm):
         raise Exception("algorithm unsupport")
     return SecretEngine(secret, algorithm)
@@ -1347,6 +1344,7 @@ class TCPController(LoopHandler):
 class RemoteService(TCPService):
 
     def __init__(self, controller, conn, options):
+        self._data_to_cache = None
         self._secret = make_secret(options.algorithm, options.secret)
         super(RemoteService, self).__init__(controller, conn, options)
 
@@ -1356,20 +1354,28 @@ class RemoteService(TCPService):
 
         if ssock == self._source:
             if self._step == STEP_INIT:
+                skip = 0
                 size = len(data)
+                maybe_http = False
                 pos = data.find(b" HTTP/1.1\r\n")
-                if pos < 0:
-                    raise Exception("http header")
-                pos = data.find(b"\r\n\r\n", pos)
-                if pos < 0:
-                    raise Exception("http package")
+                if pos > 0:
+                    pos = data.find(b"\r\n\r\n", pos)
+                    if pos > 0:
+                        skip = pos + 4
+                        maybe_http = True
+
                 try:
-                    if pos + 4 == size:
+                    if skip == size:
                         raise Exception("socks5 empty")
-                    data = self._secret.decrypt(data[pos + 4:])
+                    elif skip > 0:
+                        data = data[skip:]
+
+                    data = self._secret.decrypt(data)
+                    if not data:
+                        raise Exception("socks5 secret")
                     size = len(data)
                     if size < 7 or xord(data[0]) != 0x05 or xord(data[2]) != 0x00:
-                        raise Exception("socks5 header")
+                        raise Exception("socks5 secret")
                     cmd = xord(data[1])
                     if cmd != 1:  # CONNECT
                         raise Exception("socks5 command")
@@ -1388,8 +1394,8 @@ class RemoteService(TCPService):
                         rear = ppos + 2
                     else:
                         raise Exception("socks5 address")
-                    if rear != size:
-                        raise Exception("socks5 request size")
+                    if rear < size:
+                        self._data_to_cache = data[rear:]
 
                     addr = data[apos:ppos]
                     port = struct.unpack('>H', data[ppos:rear])[0]
@@ -1399,8 +1405,9 @@ class RemoteService(TCPService):
                     self._source.set_status(STATUS_WRITE)
                     self.connect(addr, port)
                 except Exception as e:
-                    self._source.send(
-                        xbytes("HTTP/1.1 403 Forbidden\r\n\r\n"))
+                    if maybe_http:
+                        self._source.send(
+                            xbytes("HTTP/1.1 403 Forbidden\r\n\r\n"))
                     raise e
 
             elif self._step == STEP_TRANSPORT:
@@ -1413,9 +1420,14 @@ class RemoteService(TCPService):
     def handle_connect(self, code):
         if code != CONNECT_SUCCESS:
             self._source.send(self._secret.encrypt(b'\x05\x04\00'))
+            self._data_to_cache = None
             self.terminate()
         else:
             self._step = STEP_TRANSPORT
+            if self._data_to_cache:
+                self._target.send(self._data_to_cache)
+
+            self._data_to_cache = None
             self._source.send(self._secret.encrypt(b'\x05\00\00'))
             self._source.set_status(STATUS_READWRITE)
             self._target.set_status(STATUS_READWRITE)
@@ -1458,6 +1470,7 @@ class LocalService(TCPService):
         self._socks5_request = None
         self._remote_addr = options.remote_addr
         self._remote_port = options.remote_port
+        self._disable_salt = options.disable_salt
         self._secret = make_secret(options.algorithm, options.secret)
         super(LocalService, self).__init__(controller, conn, options)
 
@@ -1659,14 +1672,19 @@ class LocalService(TCPService):
         if code != CONNECT_SUCCESS:
             self._connect_error()
         else:
-            size = int((0.3 + random.random()) * 100 * 1024 * 1024)
-            data = xbytes("POST /up HTTP/1.1" +
-                          "\r\nContent-Length: " + str(size) +
-                          "\r\nContent-Type: application/octet-stream" +
-                          "\r\n\r\n")
+            orig = self._secret.encrypt(self._socks5_request)
+            if self._disable_salt:
+                request = orig
+            else:
+                size = int((0.3 + random.random()) * 100 * 1024 * 1024)
+                salt = xbytes("POST /up HTTP/1.1" +
+                              "\r\nContent-Length: " + str(size) +
+                              "\r\nContent-Type: application/octet-stream" +
+                              "\r\n\r\n")
+                request = salt + orig
+
             self._step = STEP_RELAYING
-            self._target.send(data +
-                              self._secret.encrypt(self._socks5_request))
+            self._target.send(request)
             self._socks5_request = None
             self._target.set_status(STATUS_READ, ACTION_ADD)
 
@@ -1774,7 +1792,7 @@ def daemonize():
 
 
 if __name__ == '__main__':
-    algorithm_choices = ["fool"]
+    algorithm_choices = ["easy"]
     for method in secret_method_supported.keys():
         algorithm_choices.append(method)
 
@@ -1791,7 +1809,7 @@ if __name__ == '__main__':
                       type="int", dest="bind_port", default="0",
                       help="net port for bind")
     parser.add_option("-m", "--algorithm",
-                      type="choice", dest="algorithm", default="fool",
+                      type="choice", dest="algorithm", default="easy",
                       choices=algorithm_choices,
                       help="algorithm for transport: " + ", ".join(algorithm_choices) + " [default: %default]")
     parser.add_option("-s", "--secret",
@@ -1819,6 +1837,9 @@ if __name__ == '__main__':
     lgroup.add_option("-P", "--remote-port", default="0",
                       type="int", dest="remote_port",
                       help="remote server net port")
+    parser.add_option("-S", "--disable-salt",
+                      action="store_true", dest="disable_salt", default=False,
+                      help="disable http slat for connect to remote")
     parser.add_option_group(lgroup)
     (options, args) = parser.parse_args()
 
