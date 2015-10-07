@@ -643,8 +643,7 @@ QCLASS_IN = 1
 STEP_INIT = 0
 STEP_ADDRESS = 1
 STEP_CONNECT = 2
-STEP_RELAYING = 3
-STEP_TRANSPORT = 4
+STEP_TRANSPORT = 3
 STEP_TERMINATE = -1
 
 STATUS_INIT = 0
@@ -967,6 +966,7 @@ class TCPServiceSocket(object):
         self._traffic = TRAFFIC_IDLE
         self._data_to_write = []
         self._nbytes_to_write = 0
+        self._event_on_write = False
 
     def attach(self, sock, status=STATUS_READ):
         if self._sock:
@@ -982,7 +982,10 @@ class TCPServiceSocket(object):
         return self._sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR) != 0
 
     def send(self, data):
-        self._write(data)
+        if not self._event_on_write:
+            self._write(data)
+        else:
+            self._cache(data)
 
     def close(self):
         if not self._sock:
@@ -1036,6 +1039,10 @@ class TCPServiceSocket(object):
         self._traffic = traffic
         self._service.handle_traffic(self, traffic)
 
+    def _cache(self, data):
+        self._data_to_write.append(data)
+        self._nbytes_to_write += len(data)
+
     def _write(self, data):
         incomplete = False
         if self._nbytes_to_write > 0:
@@ -1059,8 +1066,7 @@ class TCPServiceSocket(object):
         if not incomplete:
             self._update_traffic(TRAFFIC_IDLE)
         else:
-            self._data_to_write.append(data)
-            self._nbytes_to_write += len(data)
+            self._cache(data)
             self._set_status(STATUS_WRITE, ACTION_ADD)
             if self._nbytes_to_write >= self._block_bufsize:
                 self._update_traffic(TRAFFIC_BLOCK)
@@ -1084,7 +1090,9 @@ class TCPServiceSocket(object):
             return
 
     def _on_event_write(self):
+        self._event_on_write = True
         self._service.handle_write(self)
+        self._event_on_write = False
         if not self._sock:
             return
         if self._nbytes_to_write > 0:
@@ -1344,7 +1352,7 @@ class TCPController(LoopHandler):
 class RemoteService(TCPService):
 
     def __init__(self, controller, conn, options):
-        self._data_to_cache = None
+        self._data_to_cache = []
         self._secret = make_secret(options.algorithm, options.secret)
         super(RemoteService, self).__init__(controller, conn, options)
 
@@ -1356,59 +1364,51 @@ class RemoteService(TCPService):
             if self._step == STEP_INIT:
                 skip = 0
                 size = len(data)
-                maybe_http = False
                 pos = data.find(b" HTTP/1.1\r\n")
                 if pos > 0:
                     pos = data.find(b"\r\n\r\n", pos)
                     if pos > 0:
                         skip = pos + 4
-                        maybe_http = True
 
-                try:
-                    if skip == size:
-                        raise Exception("socks5 empty")
-                    elif skip > 0:
-                        data = data[skip:]
+                if skip == size:
+                    raise Exception("socks5 empty")
+                elif skip > 0:
+                    data = data[skip:]
 
-                    data = self._secret.decrypt(data)
-                    if not data:
-                        raise Exception("socks5 secret")
-                    size = len(data)
-                    if size < 7 or xord(data[0]) != 0x05 or xord(data[2]) != 0x00:
-                        raise Exception("socks5 secret")
-                    cmd = xord(data[1])
-                    if cmd != 1:  # CONNECT
-                        raise Exception("socks5 command")
-                    atyp = xord(data[3])
-                    if atyp == 1:  # IPV4
-                        apos = 4
-                        ppos = apos + 4
-                        rear = ppos + 2
-                    elif atyp == 3:  # Domain
-                        apos = 5
-                        ppos = apos + xord(data[4])
-                        rear = ppos + 2
-                    elif atype == 4:  # IPV6
-                        apos = 4
-                        ppos = apos + 16
-                        rear = ppos + 2
-                    else:
-                        raise Exception("socks5 address")
-                    if rear < size:
-                        self._data_to_cache = data[rear:]
+                data = self._secret.decrypt(data)
+                if not data:
+                    raise Exception("socks5 secret #1")
+                size = len(data)
+                if size < 5:
+                    raise Exception("socks5 secret #2")
+                atyp = xord(data[0])
+                if atyp == 1:  # IPV4
+                    apos = 1
+                    ppos = apos + 4
+                    rear = ppos + 2
+                elif atyp == 3:  # Domain
+                    apos = 2
+                    ppos = apos + xord(data[1])
+                    rear = ppos + 2
+                elif atyp == 4:  # IPV6
+                    apos = 1
+                    ppos = apos + 16
+                    rear = ppos + 2
+                else:
+                    raise Exception("socks5 secret #3")
+                if rear < size:
+                    self._data_to_cache.append(data[rear:])
 
-                    addr = data[apos:ppos]
-                    port = struct.unpack('>H', data[ppos:rear])[0]
-                    if atyp != 3:
-                        addr = socket.inet_ntoa(addr)
+                addr = data[apos:ppos]
+                port = struct.unpack('>H', data[ppos:rear])[0]
+                if atyp != 3:
+                    addr = socket.inet_ntoa(addr)
 
-                    self._source.set_status(STATUS_WRITE)
-                    self.connect(addr, port)
-                except Exception as e:
-                    if maybe_http:
-                        self._source.send(
-                            xbytes("HTTP/1.1 403 Forbidden\r\n\r\n"))
-                    raise e
+                self._source.set_status(STATUS_READWRITE)
+                self.connect(addr, port)
+
+            elif self._step == STEP_CONNECT:
+                self._data_to_cache.append(self._secret.decrypt(data))
 
             elif self._step == STEP_TRANSPORT:
                 self._target.send(self._secret.decrypt(data))
@@ -1419,17 +1419,13 @@ class RemoteService(TCPService):
 
     def handle_connect(self, code):
         if code != CONNECT_SUCCESS:
-            self._source.send(self._secret.encrypt(b'\x05\x04\00'))
-            self._data_to_cache = None
             self.terminate()
         else:
             self._step = STEP_TRANSPORT
-            if self._data_to_cache:
-                self._target.send(self._data_to_cache)
+            if len(self._data_to_cache) > 0:
+                self._target.send(b''.join(self._data_to_cache))
+                self._data_to_cache = []
 
-            self._data_to_cache = None
-            self._source.send(self._secret.encrypt(b'\x05\00\00'))
-            self._source.set_status(STATUS_READWRITE)
             self._target.set_status(STATUS_READWRITE)
 
 
@@ -1449,8 +1445,8 @@ def split_host(host):
         return (host[:pos], int(host[pos + 1:]))
 
 
-def make_socks5_connect(atyp, addr, port):
-    data = b'\x05\01\00' + xchr(atyp)
+def make_socks5_addr(atyp, addr, port):
+    data = xchr(atyp)
     if atyp == 0x03:
         data += xchr(len(addr)) + xbytes(addr)
     else:
@@ -1531,7 +1527,7 @@ class LocalService(TCPService):
                     if rear > size:
                         self._data_to_cache = data[rear:]
 
-                    self._socks5_request = make_socks5_connect(
+                    self._socks5_request = make_socks5_addr(
                         atyp, addr, data[2:4])
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
@@ -1546,7 +1542,7 @@ class LocalService(TCPService):
                         raise Exception("connect host:port")
 
                     self._protocol = PROTOCOL_CONNECT
-                    self._socks5_request = make_socks5_connect(
+                    self._socks5_request = make_socks5_addr(
                         0x03, addr, port)
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
@@ -1578,7 +1574,7 @@ class LocalService(TCPService):
                         port = _port
 
                     self._protocol = PROTOCOL_PROXY
-                    self._socks5_request = make_socks5_connect(
+                    self._socks5_request = make_socks5_addr(
                         0x03, addr, port)
                     self._data_to_cache = method + b" " + data[epos:]
                     self._source.set_status(STATUS_WRITE)
@@ -1604,11 +1600,11 @@ class LocalService(TCPService):
                     raise Exception("socks5 length")
                 elif rear == size:
                     self._data_to_resp = data[3:]
-                    self._socks5_request = data
+                    self._socks5_request = data[3:]
                 else:
                     self._data_to_resp = data[3:rear]
                     self._data_to_cache = data[rear:]
-                    self._socks5_request = data[:rear]
+                    self._socks5_request = data[3:rear]
 
                 self._source.set_status(STATUS_WRITE)
                 self.connect(self._remote_addr, self._remote_port)
@@ -1617,19 +1613,7 @@ class LocalService(TCPService):
                 self._target.send(self._secret.encrypt(data))
 
         elif ssock == self._target:
-            if self._step == STEP_RELAYING:
-                data = self._secret.decrypt(data)
-                size = len(data)
-                if size < 3:
-                    raise Exception("resp socks5 size")
-                elif xord(data[0]) != 0x5:
-                    raise Exception("resp socks5 version")
-                elif xord(data[1]) != 0x0:
-                    self._connect_error()
-                else:
-                    self._connect_success()
-
-            elif self._step == STEP_TRANSPORT:
+            if self._step == STEP_TRANSPORT:
                 self._source.send(self._secret.decrypt(data))
 
     def _connect_error(self):
@@ -1644,8 +1628,6 @@ class LocalService(TCPService):
         if data:
             self._source.send(data)
 
-        self._data_to_resp = None
-        self._data_to_cache = None
         self.terminate()
 
     def _connect_success(self):
@@ -1657,22 +1639,25 @@ class LocalService(TCPService):
         elif self._protocol == PROTOCOL_CONNECT:
             data = xbytes("HTTP/1.1 200 Connection Established\r\n\r\n")
 
-        self._step = STEP_TRANSPORT
+        self._data_to_resp = None
         if data:
             self._source.send(data)
-        if self._data_to_cache:
-            self._target.send(self._secret.encrypt(self._data_to_cache))
 
-        self._data_to_resp = None
-        self._data_to_cache = None
+        self._step = STEP_TRANSPORT
         self._source.set_status(STATUS_READWRITE)
-        self._target.set_status(STATUS_READWRITE)
 
     def handle_connect(self, code):
         if code != CONNECT_SUCCESS:
             self._connect_error()
         else:
-            orig = self._secret.encrypt(self._socks5_request)
+            orig = self._socks5_request
+            if self._data_to_cache:
+                orig += self._data_to_cache
+                self._data_to_cache = None
+
+            orig = self._secret.encrypt(orig)
+            self._socks5_request = None
+
             if self._disable_salt:
                 request = orig
             else:
@@ -1683,10 +1668,9 @@ class LocalService(TCPService):
                               "\r\n\r\n")
                 request = salt + orig
 
-            self._step = STEP_RELAYING
             self._target.send(request)
-            self._socks5_request = None
-            self._target.set_status(STATUS_READ, ACTION_ADD)
+            self._target.set_status(STATUS_READWRITE)
+            self._connect_success()
 
 
 ################################################
