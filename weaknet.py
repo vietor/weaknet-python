@@ -669,14 +669,6 @@ def is_ip(address):
     return False
 
 
-def get_local_ip():
-    try:
-        return socket.gethostbyname(socket.gethostname())
-    except (OSError, IOError):
-        pass
-    return "127.0.0.1"
-
-
 def get_sock_error(sock):
     error_number = sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
     return socket.error(error_number, os.strerror(error_number))
@@ -1540,7 +1532,6 @@ class LocalService(TCPService):
                     addr, port = split_host(xstr(host))
                     if port < 1:
                         raise Exception("connect host:port")
-
                     self._protocol = PROTOCOL_CONNECT
                     self._socks5_request = make_socks5_addr(
                         0x03, addr, port)
@@ -1586,7 +1577,8 @@ class LocalService(TCPService):
             elif self._step == STEP_ADDRESS:
                 if size < 7 or xord(data[0]) != 0x05:
                     raise Exception("socks5 header")
-
+                if xord(data[1]) != 1:  # CONNECT
+                    raise Exception("socks5 command")
                 atyp = xord(data[3])
                 if atyp == 0x01:
                     rear = 10
@@ -1600,12 +1592,11 @@ class LocalService(TCPService):
                     raise Exception("socks5 length")
                 elif rear == size:
                     self._data_to_resp = data[3:]
-                    self._socks5_request = data[3:]
                 else:
                     self._data_to_resp = data[3:rear]
                     self._data_to_cache = data[rear:]
-                    self._socks5_request = data[3:rear]
 
+                self._socks5_request = self._data_to_resp
                 self._source.set_status(STATUS_WRITE)
                 self.connect(self._remote_addr, self._remote_port)
 
@@ -1650,23 +1641,22 @@ class LocalService(TCPService):
         if code != CONNECT_SUCCESS:
             self._connect_error()
         else:
-            orig = self._socks5_request
+            data = self._socks5_request
             if self._data_to_cache:
-                orig += self._data_to_cache
+                data += self._data_to_cache
                 self._data_to_cache = None
 
-            orig = self._secret.encrypt(orig)
+            data = self._secret.encrypt(data)
             self._socks5_request = None
-
             if self._disable_salt:
-                request = orig
+                request = data
             else:
                 size = int((0.3 + random.random()) * 100 * 1024 * 1024)
                 salt = xbytes("POST /up HTTP/1.1" +
                               "\r\nContent-Length: " + str(size) +
                               "\r\nContent-Type: application/octet-stream" +
                               "\r\n\r\n")
-                request = salt + orig
+                request = salt + data
 
             self._target.send(request)
             self._target.set_status(STATUS_READWRITE)
@@ -1677,7 +1667,6 @@ class LocalService(TCPService):
 
 
 def main(options):
-    logging.debug("Local ip: %s", get_local_ip())
     if options.role == "local":
         relay = TCPController(options, LocalService)
     else:
