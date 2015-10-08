@@ -1798,7 +1798,7 @@ if __name__ == '__main__':
                       type="int", dest="dns_bufsize", default=4,
                       help="DNS buffer size (KB) [default: %default]")
     parser.add_option("-K", "--block-bufsize",
-                      type="int", dest="block_bufsize", default=2048,
+                      type="int", dest="block_bufsize", default=0,
                       help="network block buffer size (KB) [default: %default]")
     parser.add_option("-d", "--daemon",
                       action="store_true", dest="daemon", default=False,
