@@ -1363,16 +1363,16 @@ class RemoteService(TCPService):
                         skip = pos + 4
 
                 if skip == size:
-                    raise Exception("socks5 empty")
+                    raise Exception("proxy empty")
                 elif skip > 0:
                     data = data[skip:]
 
                 data = self._secret.decrypt(data)
                 if not data:
-                    raise Exception("socks5 secret #1")
+                    raise Exception("proxy secret #1")
                 size = len(data)
-                if size < 5:
-                    raise Exception("socks5 secret #2")
+                if size < 2:
+                    raise Exception("proxy secret #2")
                 atyp = xord(data[0])
                 if atyp == 1:  # IPV4
                     apos = 1
@@ -1387,7 +1387,7 @@ class RemoteService(TCPService):
                     ppos = apos + 16
                     rear = ppos + 2
                 else:
-                    raise Exception("socks5 secret #3")
+                    raise Exception("proxy secret #3")
                 if rear < size:
                     self._data_to_cache.append(data[rear:])
 
@@ -1458,7 +1458,7 @@ class LocalService(TCPService):
         self._socks5_request = None
         self._remote_addr = options.remote_addr
         self._remote_port = options.remote_port
-        self._disable_salt = options.disable_salt
+        self._shadowsocks = options.shadowsocks
         self._secret = make_secret(options.algorithm, options.secret)
         super(LocalService, self).__init__(controller, conn, options)
 
@@ -1516,7 +1516,7 @@ class LocalService(TCPService):
                         self._protocol = PROTOCOL_SOCKS4
 
                     self._data_to_resp = data[2:8]
-                    if rear > size:
+                    if rear < size:
                         self._data_to_cache = data[rear:]
 
                     self._socks5_request = make_socks5_addr(
@@ -1524,6 +1524,7 @@ class LocalService(TCPService):
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
 
+                # http connect
                 elif size > 24 and xstr(data[:8]) == "CONNECT ":
                     pos = data.find(b" HTTP/1.1\r\n", 8)
                     if pos < 0:
@@ -1538,6 +1539,7 @@ class LocalService(TCPService):
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
 
+                # http proxy
                 elif size > 16:
                     pos = data.find(b" HTTP/1.1\r\n")
                     if pos < 1:
@@ -1588,9 +1590,9 @@ class LocalService(TCPService):
                     rear = 22
                 else:
                     raise Exception("socks5 address")
-                if rear < size:
+                if rear > size:
                     raise Exception("socks5 length")
-                elif rear == size:
+                if rear == size:
                     self._data_to_resp = data[3:]
                 else:
                     self._data_to_resp = data[3:rear]
@@ -1648,7 +1650,7 @@ class LocalService(TCPService):
 
             data = self._secret.encrypt(data)
             self._socks5_request = None
-            if self._disable_salt:
+            if self._shadowsocks:
                 request = data
             else:
                 size = int((0.3 + random.random()) * 100 * 1024 * 1024)
@@ -1810,9 +1812,9 @@ if __name__ == '__main__':
     lgroup.add_option("-P", "--remote-port", default="0",
                       type="int", dest="remote_port",
                       help="remote server net port")
-    parser.add_option("-S", "--disable-salt",
-                      action="store_true", dest="disable_salt", default=False,
-                      help="disable http slat for connect to remote")
+    parser.add_option("-S", "--shadowsocks",
+                      action="store_true", dest="shadowsocks", default=False,
+                      help="usage shadowsocks compatible mode")
     parser.add_option_group(lgroup)
     (options, args) = parser.parse_args()
 
