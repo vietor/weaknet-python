@@ -1453,9 +1453,8 @@ class LocalService(TCPService):
 
     def __init__(self, controller, conn, options):
         self._protocol = PROTOCOL_NONE
-        self._data_to_resp = None
+        self._socks5_addr = None
         self._data_to_cache = None
-        self._socks5_request = None
         self._remote_addr = options.remote_addr
         self._remote_port = options.remote_port
         self._shadowsocks = options.shadowsocks
@@ -1515,11 +1514,10 @@ class LocalService(TCPService):
                         addr = socket.inet_ntoa(data[4:8])
                         self._protocol = PROTOCOL_SOCKS4
 
-                    self._data_to_resp = data[2:8]
                     if rear < size:
                         self._data_to_cache = data[rear:]
 
-                    self._socks5_request = make_socks5_addr(
+                    self._socks5_addr = make_socks5_addr(
                         atyp, addr, data[2:4])
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
@@ -1534,7 +1532,7 @@ class LocalService(TCPService):
                     if port < 1:
                         raise Exception("connect host:port")
                     self._protocol = PROTOCOL_CONNECT
-                    self._socks5_request = make_socks5_addr(
+                    self._socks5_addr = make_socks5_addr(
                         0x03, addr, port)
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
@@ -1567,7 +1565,7 @@ class LocalService(TCPService):
                         port = _port
 
                     self._protocol = PROTOCOL_PROXY
-                    self._socks5_request = make_socks5_addr(
+                    self._socks5_addr = make_socks5_addr(
                         0x03, addr, port)
                     self._data_to_cache = method + b" " + data[epos:]
                     self._source.set_status(STATUS_WRITE)
@@ -1593,12 +1591,11 @@ class LocalService(TCPService):
                 if rear > size:
                     raise Exception("socks5 length")
                 if rear == size:
-                    self._data_to_resp = data[3:]
+                    self._socks5_addr = data[3:]
                 else:
-                    self._data_to_resp = data[3:rear]
+                    self._socks5_addr = data[3:rear]
                     self._data_to_cache = data[rear:]
 
-                self._socks5_request = self._data_to_resp
                 self._source.set_status(STATUS_WRITE)
                 self.connect(self._remote_addr, self._remote_port)
 
@@ -1612,9 +1609,9 @@ class LocalService(TCPService):
     def _connect_error(self):
         data = None
         if self._protocol in (PROTOCOL_SOCKS4, PROTOCOL_SOCKS4A):
-            data = b'\x00\x5b' + self._data_to_resp
+            data = b'\x00\x5b\x00\x00\x00\x00\x10\x10'
         elif self._protocol == PROTOCOL_SOCKS5:
-            data = b'\x05\x04\00' + self._data_to_resp
+            data = b'\x05\x04\00\x01\x00\x00\x00\x00\x10\x10'
         elif self._protocol in (PROTOCOL_CONNECT, PROTOCOL_PROXY):
             data = xbytes("HTTP/1.1 407 Unauthorized\r\n\r\n")
 
@@ -1626,13 +1623,12 @@ class LocalService(TCPService):
     def _connect_success(self):
         data = None
         if self._protocol in (PROTOCOL_SOCKS4, PROTOCOL_SOCKS4A):
-            data = b'\x00\x5a' + self._data_to_resp
+            data = b'\x00\x5a\x00\x00\x00\x00\x10\x10'
         elif self._protocol == PROTOCOL_SOCKS5:
-            data = b'\x05\00\00' + self._data_to_resp
+            data = b'\x05\x00\x00\x01\x00\x00\x00\x00\x10\x10'
         elif self._protocol == PROTOCOL_CONNECT:
             data = xbytes("HTTP/1.1 200 Connection Established\r\n\r\n")
 
-        self._data_to_resp = None
         if data:
             self._source.send(data)
 
@@ -1643,13 +1639,13 @@ class LocalService(TCPService):
         if code != CONNECT_SUCCESS:
             self._connect_error()
         else:
-            data = self._socks5_request
+            data = self._socks5_addr
             if self._data_to_cache:
                 data += self._data_to_cache
                 self._data_to_cache = None
 
             data = self._secret.encrypt(data)
-            self._socks5_request = None
+            self._socks5_addr = None
             if self._shadowsocks:
                 request = data
             else:
