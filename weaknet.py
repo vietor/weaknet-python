@@ -16,6 +16,7 @@ import errno
 import signal
 import logging
 import hashlib
+import random
 
 
 def xord(s):
@@ -69,6 +70,15 @@ def errno_at_exc(e):
         return e.args[0]
     else:
         return None
+
+
+def random_string(length):
+    return os.urandom(length)
+
+
+def random_word(n, m):
+    length = random.randint(n, m)
+    return ''.join(random.choice('abcdefghijklmnopqrstuvwxyz') for i in range(length))
 
 
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(message)s")
@@ -523,7 +533,9 @@ class SecretEngine(object):
         self.decipher = None
         self._method_info = secret_method_supported.get(method)
         if self._method_info:
-            self.cipher = self._get_cipher(1, os.urandom(self._method_info[1]))
+            self.cipher = self._get_cipher(
+                1, random_string(self._method_info[1])
+            )
         else:
             logging.error('method %s not supported' % method)
             sys.exit(1)
@@ -631,7 +643,7 @@ def make_secret(algorithm, secret):
 ################################################
 import socket
 import struct
-import random
+
 
 QTYPE_ANY = 255
 QTYPE_A = 1
@@ -700,9 +712,7 @@ class DNSResponse(object):
 
 def dns_build_request(address, qtype):
     header = struct.pack('!BBHHHH', 1, 0, 1, 0, 0, 0)
-    request_id = b''.join([xchr(random.randint(0, 255)),
-                           xchr(random.randint(0, 255))])
-
+    request_id = random_string(2)
     address = address.strip(b'.')
     labels = address.split(b'.')
     results = []
@@ -1340,6 +1350,35 @@ class TCPController(LoopHandler):
 
 ################################################
 
+HTTP_HASBODY = ("POST", "POST")
+HTTP_METHODS = (
+    "HEAD", "GET", "POST",
+    "PUT", "DELETE", "TRACE", "OPTIONS"
+)
+
+
+def skip_http_method(data):
+    pos = data.find(b" ", 0, 8)
+    if pos < 1:
+        return 0
+    method = xstr(data[:pos])
+    return pos + 1 if method in HTTP_METHODS else 0
+
+
+def make_http_request():
+    method = HTTP_METHODS[random.randint(1, len(HTTP_METHODS)) - 1]
+    title = method + " /" + random_word(1, 8) + " HTTP/1.1"
+    if method not in HTTP_HASBODY:
+        data = title \
+            + "\r\nAccept: */*"
+    else:
+        size = random.randint(30, 100) * 1024 * 1024
+        data = title \
+            + "\r\nContent-Length: " + str(size) \
+            + "\r\nContent-Type: application/octet-stream"
+
+    return data + "\r\n\r\n"
+
 
 class RemoteService(TCPService):
 
@@ -1355,16 +1394,19 @@ class RemoteService(TCPService):
         if ssock == self._source:
             if self._step == STEP_INIT:
                 skip = 0
-                size = len(data)
-                pos = data.find(b" HTTP/1.1\r\n")
+                http = False
+                pos = skip_http_method(data)
                 if pos > 0:
-                    pos = data.find(b"\r\n\r\n", pos)
+                    pos = data.find(b" HTTP/1.1\r\n", pos)
                     if pos > 0:
-                        skip = pos + 4
+                        http = True
+                        pos = data.find(b"\r\n\r\n", pos)
+                        if pos > 0:
+                            skip = pos + 4
 
-                if skip == size:
-                    raise Exception("proxy empty")
-                elif skip > 0:
+                if (http and skip == 0) or skip >= len(data):
+                    raise Exception("proxy header")
+                if skip > 0:
                     data = data[skip:]
 
                 data = self._secret.decrypt(data)
@@ -1649,12 +1691,7 @@ class LocalService(TCPService):
             if self._shadowsocks:
                 request = data
             else:
-                size = int((0.3 + random.random()) * 100 * 1024 * 1024)
-                salt = xbytes("POST /up HTTP/1.1" +
-                              "\r\nContent-Length: " + str(size) +
-                              "\r\nContent-Type: application/octet-stream" +
-                              "\r\n\r\n")
-                request = salt + data
+                request = xbytes(make_http_request()) + data
 
             self._target.send(request)
             self._target.set_status(STATUS_READWRITE)
