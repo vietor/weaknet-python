@@ -1350,11 +1350,8 @@ class TCPController(LoopHandler):
 
 ################################################
 
-HTTP_HASBODY = ("POST", "POST")
-HTTP_METHODS = (
-    "HEAD", "GET", "POST",
-    "PUT", "DELETE", "TRACE", "OPTIONS"
-)
+HTTP_HASBODY = ("POST", "PUT")
+HTTP_METHODS = ("HEAD", "GET", "POST", "PUT", "DELETE")
 
 
 def skip_http_method(data):
