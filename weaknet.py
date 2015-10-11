@@ -875,18 +875,36 @@ def dns_parse_response(data):
 
 class DNSController(LoopHandler):
 
-    def __init__(self, bufsize, servers=['8.8.4.4', '8.8.8.8']):
+    def __init__(self, bufsize):
         self._loop = None
-        self._servers = servers
+        self._servers = []
         self._bufsize = bufsize * 1024
         self._cache = LRUCache(timeout=300)
         self._hostname_qtypes = {}
         self._hostname_callbacks = {}
         self._callback_hostnames = {}
-
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,
                                    socket.SOL_UDP)
         self._sock.setblocking(False)
+
+        try:
+            with open('/etc/resolv.conf', 'rb') as f:
+                content = f.readlines()
+                for line in content:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if not line.startswith(b'nameserver'):
+                        continue
+                    parts = line.split()
+                    if len(parts) < 2 \
+                       or is_ip(parts[1]) != socket.AF_INET:
+                        continue
+                    self._servers.append(xstr(parts[1]))
+        except IOError:
+            pass
+        if not self._servers:
+            self._servers = ['8.8.4.4', '8.8.8.8']
 
     def bind(self, loop):
         self._loop = loop
