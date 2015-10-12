@@ -1558,6 +1558,7 @@ class LocalService(TCPService):
 
     def __init__(self, controller, conn, options):
         self._protocol = PROTOCOL_NONE
+        self._protocol_data = None
         self._socks5_addr = None
         self._data_to_cache = None
         self._remote_addr = options.remote_addr
@@ -1629,9 +1630,12 @@ class LocalService(TCPService):
 
                 # http connect
                 elif size > 24 and xstr(data[:8]) == "CONNECT ":
-                    pos = data.find(b" HTTP/1.1\r\n", 8)
-                    if pos < 0:
+                    pos = data.find(b" HTTP/", 8)
+                    if pos < 1 \
+                       or pos + 8 >= size \
+                       or xstr(data[pos + 6: pos + 8]) not in ("1.", "2."):
                         raise Exception("connect header")
+                    self._protocol_data = xstr(data[pos + 6: pos + 9])
                     host = data[8:pos]
                     addr, port = split_host(xstr(host))
                     if port < 1:
@@ -1646,8 +1650,8 @@ class LocalService(TCPService):
                 elif size > 16:
                     pos = data.find(b" HTTP/")
                     if pos < 1 \
-                       or pos + 9 >= size \
-                       or xstr(data[pos + 6: pos + 9]) not in ("1.0", "1.1", "2.0"):
+                       or pos + 8 >= size \
+                       or xstr(data[pos + 6: pos + 8]) not in ("1.", "2."):
                         raise Exception("proxy header")
                     head = data[:pos]
                     pos = head.find(b" http://")
@@ -1720,7 +1724,8 @@ class LocalService(TCPService):
         elif self._protocol == PROTOCOL_SOCKS5:
             data = b'\x05\x04\00\x01\x00\x00\x00\x00\x10\x10'
         elif self._protocol in (PROTOCOL_CONNECT, PROTOCOL_PROXY):
-            data = xbytes("HTTP/1.1 407 Unauthorized\r\n\r\n")
+            data = xbytes("HTTP/" + self._protocol_data +
+                          " 407 Unauthorized\r\n\r\n")
 
         if data:
             self._source.send(data)
@@ -1734,7 +1739,8 @@ class LocalService(TCPService):
         elif self._protocol == PROTOCOL_SOCKS5:
             data = b'\x05\x00\x00\x01\x00\x00\x00\x00\x10\x10'
         elif self._protocol == PROTOCOL_CONNECT:
-            data = xbytes("HTTP/1.1 200 Connection Established\r\n\r\n")
+            data = xbytes("HTTP/" + self._protocol_data +
+                          " 200 Connection Established\r\n\r\n")
 
         if data:
             self._source.send(data)
