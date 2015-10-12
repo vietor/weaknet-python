@@ -1416,8 +1416,8 @@ class TCPController(LoopHandler):
 
 ################################################
 
-HTTP_HASBODY = ("POST", "PUT")
-HTTP_METHODS = ("HEAD", "GET", "POST", "PUT", "DELETE")
+HTTP_HASBODY = ("POST")
+HTTP_METHODS = ("HEAD", "GET", "POST")
 
 
 def skip_http_method(data):
@@ -1644,7 +1644,7 @@ class LocalService(TCPService):
 
                 # http proxy
                 elif size > 16:
-                    pos = data.find(b" HTTP/1.1\r\n")
+                    pos = data.find(b" HTTP/1.")
                     if pos < 1:
                         raise Exception("proxy header")
                     head = data[:pos]
@@ -1653,7 +1653,7 @@ class LocalService(TCPService):
                         method = head[:pos]
                         pos += 8
                         port = 80
-                    else:
+                    else:  # maybe never usage
                         pos = head.find(b" https://")
                         if pos > 0:
                             method = head[:pos]
