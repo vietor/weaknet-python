@@ -1644,8 +1644,10 @@ class LocalService(TCPService):
 
                 # http proxy
                 elif size > 16:
-                    pos = data.find(b" HTTP/1.")
-                    if pos < 1:
+                    pos = data.find(b" HTTP/")
+                    if pos < 1 \
+                       or pos + 9 >= size \
+                       or xstr(data[pos + 6: pos + 9]) not in ("1.0", "1.1", "2.0"):
                         raise Exception("proxy header")
                     head = data[:pos]
                     pos = head.find(b" http://")
