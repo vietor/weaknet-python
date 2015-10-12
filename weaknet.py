@@ -3,7 +3,7 @@
 from __future__ import division, print_function, with_statement
 
 
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 
 DEFAULT_LOCAL_PORT = 51080
 DEFAULT_REMOTE_PORT = 58080
