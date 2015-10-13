@@ -653,9 +653,10 @@ QTYPE_NS = 2
 QCLASS_IN = 1
 
 STEP_INIT = 0
-STEP_ADDRESS = 1
-STEP_CONNECT = 2
-STEP_TRANSPORT = 3
+STEP_WAITHDR = 1
+STEP_WAITDNS = 2
+STEP_CONNECT = 3
+STEP_TRANSPORT = 4
 STEP_TERMINATE = -1
 
 STATUS_INIT = 0
@@ -669,6 +670,11 @@ ACTION_DEL = 2
 
 TRAFFIC_IDLE = 0
 TRAFFIC_BLOCK = 1
+
+CONNECT_SUCCESS = 0
+CONNECT_BADDNS = 1
+CONNECT_TIMEOUT = 2
+CONNECT_BADSOCK = 3
 
 
 def is_ip(address):
@@ -1178,12 +1184,6 @@ class TCPServiceSocket(object):
         self._service.terminate()
 
 
-CONNECT_SUCCESS = 0
-CONNECT_BADDNS = 1
-CONNECT_TIMEOUT = 2
-CONNECT_BADSOCK = 3
-
-
 class NetAddr(object):
     __slots__ = ('host', 'port', 'ip')
 
@@ -1226,18 +1226,13 @@ class TCPService(object):
         sock.setblocking(False)
         sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
         self._source.attach(sock)
+        self._controller._loop.add_timer(self.handle_timer)
 
     def terminate(self):
         if self._step == STEP_TERMINATE:
             return
-
-        self._set_address_wait(ACTION_DEL)
-        self._set_connect_wait(ACTION_DEL)
-
-        if self._step == STEP_CONNECT:
-            self._controller._dnsc.unregister(self.address_complete)
-
         self._step = STEP_TERMINATE
+        self._controller._loop.remove_timer(self.handle_timer)
         if self._source:
             self._source.close()
             self._source = None
@@ -1247,29 +1242,23 @@ class TCPService(object):
 
         del self._controller._services[id(self)]
 
-    def _set_address_wait(self, action):
-        if action == ACTION_ADD:
-            self._address_wait = time.time() + TIMEOUT_OF_ACTION
-            self._controller._loop.add_timer(self.address_timeout)
-        elif action == ACTION_DEL:
-            if self._address_wait > 0:
-                self._address_wait = 0
-                self._controller._loop.remove_timer(self.address_timeout)
-
-    def _set_connect_wait(self, action):
-        if action == ACTION_ADD:
-            self._connect_wait = time.time() + TIMEOUT_OF_ACTION
-            self._controller._loop.add_timer(self.connect_timeout)
-        elif action == ACTION_DEL:
-            if self._connect_wait > 0:
-                self._connect_wait = 0
-                self._controller._loop.remove_timer(self.connect_timeout)
-
     def connect(self, addr, port):
-        self._step = STEP_CONNECT
+        self._step = STEP_WAITDNS
+        self._address_wait = time.time() + TIMEOUT_OF_ACTION
         self._target_addr = NetAddr(addr, port)
-        self._set_address_wait(ACTION_ADD)
         self._controller._dnsc.register(self.address_complete, addr)
+
+    def handle_timer(self):
+        if self._step == STEP_TERMINATE:
+            return
+        if self._step == STEP_WAITDNS:
+            if self._address_wait > 0 and time.time() >= self._address_wait:
+                logging.debug("dns timeout %s", self._target_addr)
+                self.handle_connect(CONNECT_TIMEOUT)
+        elif self._step == STEP_CONNECT:
+            if self._connect_wait > 0 and time.time() >= self._connect_wait:
+                logging.debug("connect timeout %s", self._target_addr)
+                self.handle_connect(CONNECT_TIMEOUT)
 
     def handle_connect(self, code):
         pass
@@ -1286,15 +1275,6 @@ class TCPService(object):
             elif ssock == self._target:
                 self._source.set_status(STATUS_READ, ACTION_ADD)
 
-    def connect_timeout(self):
-        if self._step == STEP_TERMINATE:
-            return
-
-        if self._step == STEP_CONNECT:
-            if time.time() >= self._connect_wait:
-                logging.debug("connect timeout %s", self._target_addr)
-                self.handle_connect(CONNECT_TIMEOUT)
-
     def handle_read(self, ssock, data):
         pass
 
@@ -1303,19 +1283,19 @@ class TCPService(object):
             return
         if ssock == self._target:
             if self._step == STEP_CONNECT:
-                self._set_connect_wait(ACTION_DEL)
+                self._connect_wait = 0
                 if ssock.has_error():
                     code = CONNECT_BADSOCK
                 else:
                     code = CONNECT_SUCCESS
-                    self.handle_connect(code)
+
+                self.handle_connect(code)
 
     def address_complete(self, hostname, ip):
         if self._step == STEP_TERMINATE:
             return
-
-        self._set_address_wait(ACTION_DEL)
-
+        self._address_wait = 0
+        self._step = STEP_CONNECT
         if not ip:
             logging.debug("dns bad: %s", hostname)
             self.handle_connect(CONNECT_BADDNS)
@@ -1329,21 +1309,12 @@ class TCPService(object):
         sock.setblocking(False)
         sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
         self._target.attach(sock, STATUS_WRITE)
-        self._set_connect_wait(ACTION_ADD)
+        self._connect_wait = time.time() + TIMEOUT_OF_ACTION
         try:
             sock.connect(sa)
         except (OSError, IOError) as e:
             if errno_at_exc(e) == errno.EINPROGRESS:
                 pass
-
-    def address_timeout(self):
-        if self._step == STEP_TERMINATE:
-            return
-
-        if self._step == STEP_CONNECT:
-            if time.time() >= self._address_wait:
-                logging.debug("dns timeout %s", self._target_addr)
-                self.handle_connect(CONNECT_TIMEOUT)
 
 
 class TCPController(LoopHandler):
@@ -1455,7 +1426,10 @@ class RemoteService(TCPService):
             return
 
         if ssock == self._source:
-            if self._step == STEP_INIT:
+            if self._step == STEP_TRANSPORT:
+                self._target.send(self._secret.decrypt(data))
+
+            elif self._step == STEP_INIT:
                 skip = 0
                 http = False
                 pos = skip_http_method(data)
@@ -1504,11 +1478,8 @@ class RemoteService(TCPService):
                 self._source.set_status(STATUS_READWRITE)
                 self.connect(addr, port)
 
-            elif self._step == STEP_CONNECT:
+            elif self._step == STEP_WAITDNS or self._step == STEP_CONNECT:
                 self._data_to_cache.append(self._secret.decrypt(data))
-
-            elif self._step == STEP_TRANSPORT:
-                self._target.send(self._secret.decrypt(data))
 
         elif ssock == self._target:
             if self._step == STEP_TRANSPORT:
@@ -1572,15 +1543,18 @@ class LocalService(TCPService):
             return
 
         if ssock == self._source:
-            size = len(data)
-            if self._step == STEP_INIT:
+            if self._step == STEP_TRANSPORT:
+                self._target.send(self._secret.encrypt(data))
+
+            elif self._step == STEP_INIT:
+                size = len(data)
                 ver = xord(data[0])
                 # socks5
                 if ver == 0x05:
                     if size < 3:
                         raise Exception("socks5 format")
                     self._protocol = PROTOCOL_SOCKS5
-                    self._step = STEP_ADDRESS
+                    self._step = STEP_WAITHDR
                     self._source.send(b'\x05\00')
 
                 # socks4
@@ -1685,7 +1659,8 @@ class LocalService(TCPService):
                 else:
                     raise Exception("proxy prototal")
 
-            elif self._step == STEP_ADDRESS:
+            elif self._step == STEP_WAITHDR:
+                size = len(data)
                 if size < 7 or xord(data[0]) != 0x05:
                     raise Exception("socks5 header")
                 if xord(data[1]) != 1:  # CONNECT
@@ -1709,9 +1684,6 @@ class LocalService(TCPService):
 
                 self._source.set_status(STATUS_WRITE)
                 self.connect(self._remote_addr, self._remote_port)
-
-            elif self._step == STEP_TRANSPORT:
-                self._target.send(self._secret.encrypt(data))
 
         elif ssock == self._target:
             if self._step == STEP_TRANSPORT:
