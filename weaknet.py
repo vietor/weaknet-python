@@ -1414,6 +1414,64 @@ def make_http_request():
     return data + "\r\n\r\n"
 
 
+class MiniHttpRequest(object):
+    __slots__ = ('method', 'path', 'version', 'headers', 'length')
+
+    def __init__(self):
+        self.headers = {}
+
+    def __str__(self):
+        lines = []
+        lines.append(self.method + " " + self.path + " " + self.version)
+        for key, value in self.headers.iteritems():
+            lines.append(key + ": " + value)
+        return "\r\n".join(lines) + "\r\n\r\n"
+
+    def add_header(self, key, value):
+        self.headers[key] = value
+
+    def remove_header(self, key):
+        if key in self.headers:
+            del self.headers[key]
+
+    def makeBytes(self, data):
+        if data:
+            return xbytes(self.__str__())
+        else:
+            return xbytes(self.__str__()) + data
+
+
+def parse_http_request(data, size):
+    request = MiniHttpRequest()
+    pos = data.find(b" ", 0, 8)
+    if pos < 1:
+        raise Exception("http method")
+    request.method = xstr(data[:pos])
+    last = pos + 1
+    pos = data.find(b" HTTP/", last)
+    if pos < 1 \
+       or pos + 8 >= size \
+       or xstr(data[pos + 6: pos + 8]) != "1.":
+        raise Exception("http header")
+    request.path = xstr(data[last: pos])
+    last = pos + 1
+    pos = data.find(b"\r\n", last)
+    if pos < 1 \
+       or pos + 2 >= size:
+        raise Exception("http version")
+    request.version = xstr(data[last: pos])
+    last = pos + 2
+    pos = data.find(b"\r\n\r\n")
+    if pos < 1:
+        raise Exception("http headers")
+    request.length = pos + 4
+    for line in xstr(data[last: pos]).split("\r\n"):
+        pos = line.find(":")
+        if pos > 0:
+            request.headers[line[:pos]] = line[pos + 1:].lstrip()
+    return request
+
+
 class RemoteService(TCPService):
 
     def __init__(self, controller, conn, options):
@@ -1602,62 +1660,41 @@ class LocalService(TCPService):
                     self._source.set_status(STATUS_WRITE)
                     self.connect(self._remote_addr, self._remote_port)
 
-                # http connect
-                elif size > 24 and xstr(data[:8]) == "CONNECT ":
-                    pos = data.find(b" HTTP/", 8)
-                    if pos < 1 \
-                       or pos + 8 >= size \
-                       or xstr(data[pos + 6: pos + 8]) not in ("1.", "2."):
-                        raise Exception("connect header")
-                    self._protocol_data = xstr(data[pos + 6: pos + 9])
-                    host = data[8:pos]
-                    addr, port = split_host(xstr(host))
-                    if port < 1:
-                        raise Exception("connect host:port")
-                    self._protocol = PROTOCOL_CONNECT
-                    self._socks5_addr = make_socks5_addr(
-                        0x03, addr, port)
-                    self._source.set_status(STATUS_WRITE)
-                    self.connect(self._remote_addr, self._remote_port)
-
-                # http proxy
-                elif size > 16:
-                    pos = data.find(b" HTTP/")
-                    if pos < 1 \
-                       or pos + 8 >= size \
-                       or xstr(data[pos + 6: pos + 8]) not in ("1.", "2."):
-                        raise Exception("proxy header")
-                    head = data[:pos]
-                    pos = head.find(b" http://")
-                    if pos > 0:
-                        method = head[:pos]
-                        pos += 8
-                        port = 80
-                    else:  # maybe never usage
-                        pos = head.find(b" https://")
-                        if pos > 0:
-                            method = head[:pos]
-                            pos += 9
-                            port = 443
-                    if pos < 1:
-                        raise Exception("proxy method")
-                    epos = head.find(b"/", pos)
-                    if epos < 1:
-                        raise Exception("proxy path")
-                    host = data[pos: epos]
-                    addr, _port = split_host(xstr(host))
-                    if _port > 0:
-                        port = _port
-
-                    self._protocol = PROTOCOL_PROXY
-                    self._socks5_addr = make_socks5_addr(
-                        0x03, addr, port)
-                    self._data_to_cache = method + b" " + data[epos:]
-                    self._source.set_status(STATUS_WRITE)
-                    self.connect(self._remote_addr, self._remote_port)
-
                 else:
-                    raise Exception("proxy prototal")
+                    try:
+                        request = parse_http_request(data, size)
+                    except:
+                        raise Exception("proxy protocol")
+                    if request.method == "CONNECT":
+                        addr, port = split_host(request.path)
+                        if port < 1:
+                            raise Exception("connect host:port")
+                        self._protocol = PROTOCOL_CONNECT
+                        self._protocol_data = request.version
+                    else:
+                        pos = request.path.find("://", 0, 8)
+                        if pos < 1 or request.path[:pos].lower() != "http":
+                            raise Exception("proxy path #1")
+                        pos = request.path.find("/", 8)
+                        if pos < 1:
+                            raise Exception("proxy path #2")
+                        addr, _port = split_host(request.path[7: pos])
+                        if _port > 0:
+                            port = _port
+                        else:
+                            port = 80
+
+                        request.path = request.path[pos:]
+                        request.add_header("Connection", "close")
+                        request.remove_header("Proxy-Connection")
+                        self._protocol = PROTOCOL_PROXY
+                        self._data_to_cache = request.makeBytes(
+                            data[request.length:])
+
+                    self._socks5_addr = make_socks5_addr(
+                        0x03, addr, port)
+                    self._source.set_status(STATUS_WRITE)
+                    self.connect(self._remote_addr, self._remote_port)
 
             elif self._step == STEP_WAITHDR:
                 size = len(data)
@@ -1696,7 +1733,7 @@ class LocalService(TCPService):
         elif self._protocol == PROTOCOL_SOCKS5:
             data = b'\x05\x04\00\x01\x00\x00\x00\x00\x10\x10'
         elif self._protocol in (PROTOCOL_CONNECT, PROTOCOL_PROXY):
-            data = xbytes("HTTP/" + self._protocol_data +
+            data = xbytes(self._protocol_data +
                           " 407 Unauthorized\r\n\r\n")
 
         if data:
@@ -1711,7 +1748,7 @@ class LocalService(TCPService):
         elif self._protocol == PROTOCOL_SOCKS5:
             data = b'\x05\x00\x00\x01\x00\x00\x00\x00\x10\x10'
         elif self._protocol == PROTOCOL_CONNECT:
-            data = xbytes("HTTP/" + self._protocol_data +
+            data = xbytes(self._protocol_data +
                           " 200 Connection Established\r\n\r\n")
 
         if data:
