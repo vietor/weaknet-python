@@ -1446,24 +1446,22 @@ def parse_http_request(data, size):
         raise Exception("http method")
     request.method = xstr(data[:pos])
     last = pos + 1
-    pos = data.find(b" HTTP/", last)
-    if pos < 1 \
-       or pos + 8 >= size \
-       or xstr(data[pos + 6: pos + 8]) != "1.":
-        raise Exception("http header")
+    pos = data.find(b" HTTP/1.", last)
+    if pos < 1 or pos + 9 >= size:
+        raise Exception("http version")
     request.path = xstr(data[last: pos])
     last = pos + 1
-    pos = data.find(b"\r\n", last)
+    rear = data.find(b"\r\n\r\n", pos + 9)
+    if rear < 1:
+        raise Exception("http headers")
+    request.length = rear + 4
+    pos = data.find(b"\r\n", last + 8, rear)
     if pos < 1 \
        or pos + 2 >= size:
         raise Exception("http version")
     request.version = xstr(data[last: pos])
     last = pos + 2
-    pos = data.find(b"\r\n\r\n")
-    if pos < 1:
-        raise Exception("http headers")
-    request.length = pos + 4
-    for line in xstr(data[last: pos]).split("\r\n"):
+    for line in xstr(data[last: rear]).split("\r\n"):
         pos = line.find(":")
         if pos > 0:
             request.add_header(line[:pos], line[pos + 1:].lstrip())
