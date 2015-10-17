@@ -1391,14 +1391,6 @@ HTTP_HASBODY = ("POST")
 HTTP_METHODS = ("HEAD", "GET", "POST")
 
 
-def skip_http_method(data):
-    pos = data.find(b" ", 0, 8)
-    if pos < 1:
-        return 0
-    method = xstr(data[:pos])
-    return pos + 1 if method in HTTP_METHODS else 0
-
-
 def make_http_request():
     method = HTTP_METHODS[random.randint(1, len(HTTP_METHODS)) - 1]
     title = method + " /" + random_word(1, 8) + " HTTP/1.1"
@@ -1415,24 +1407,30 @@ def make_http_request():
 
 
 class MiniHttpRequest(object):
-    __slots__ = ('method', 'path', 'version', 'headers', 'length')
+    __slots__ = ('method', 'path', 'version',
+                 '_headers', '_header_ks', 'length')
 
     def __init__(self):
-        self.headers = {}
+        self._headers = {}
+        self._header_ks = {}
 
     def __str__(self):
         lines = []
         lines.append(self.method + " " + self.path + " " + self.version)
-        for key, value in self.headers.iteritems():
-            lines.append(key + ": " + value)
+        for key, value in self._headers.iteritems():
+            lines.append(self._header_ks[key] + ": " + value)
         return "\r\n".join(lines) + "\r\n\r\n"
 
     def add_header(self, key, value):
-        self.headers[key] = value
+        lkey = key.lower()
+        self._headers[lkey] = value
+        self._header_ks[lkey] = key
 
     def remove_header(self, key):
-        if key in self.headers:
-            del self.headers[key]
+        lkey = key.lower()
+        if lkey in self._header_ks:
+            del self._headers[lkey]
+            del self._header_ks[lkey]
 
     def makeBytes(self, data):
         if data:
@@ -1468,7 +1466,7 @@ def parse_http_request(data, size):
     for line in xstr(data[last: pos]).split("\r\n"):
         pos = line.find(":")
         if pos > 0:
-            request.headers[line[:pos]] = line[pos + 1:].lstrip()
+            request.add_header(line[:pos], line[pos + 1:].lstrip())
     return request
 
 
@@ -1488,22 +1486,11 @@ class RemoteService(TCPService):
                 self._target.send(self._secret.decrypt(data))
 
             elif self._step == STEP_INIT:
-                skip = 0
-                http = False
-                pos = skip_http_method(data)
-                if pos > 0:
-                    pos = data.find(b" HTTP/1.1\r\n", pos)
-                    if pos > 0:
-                        http = True
-                        pos = data.find(b"\r\n\r\n", pos)
-                        if pos > 0:
-                            skip = pos + 4
-
-                if (http and skip == 0) or skip >= len(data):
-                    raise Exception("proxy header")
-                if skip > 0:
-                    data = data[skip:]
-
+                try:
+                    request = parse_http_request(data, len(data))
+                    data = data[request.length:]
+                except:
+                    pass
                 data = self._secret.decrypt(data)
                 if not data:
                     raise Exception("proxy secret #1")
