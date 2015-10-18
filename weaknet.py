@@ -1597,21 +1597,26 @@ function ProxyMatch(rule) {
     }
 
     var rePath = null;
-    var reFull = null;
-    if(rule.substring(0, 2) == "||")
-        rePath = new RegExp(reFixed(rule.substring(2)));
+    var rePath2 = null;
+    var reFully = null;
+    if(rule.substring(0, 2) == "||") {
+        var path = rule.substring(2);
+        rePath = new RegExp(reFixed(path));
+        if(path.length > 1 && path.charAt(0) == ".")
+            rePath2 = new RegExp(reFixed("//" + path.substring(1)));
+    }
     else if(rule.charAt(0) == "|")
         rePath = new RegExp("^" + reFixed(rule.substring(1)));
     else if(rule.charAt(0) == "/" && rule.charAt(rule.length - 1) == "/")
-        reFull = new RegExp(rule.substring(1, rule.length - 2));
+        reFully = new RegExp(rule.substring(1, rule.length - 2));
     else
-        reFull = new RegExp(reFixed(rule));
+        reFully = new RegExp(reFixed(rule));
 
     this.test = function(path, url) {
         if(rePath)
-            return rePath.test(path);
-        else if(reFull)
-            return reFull.test(url);
+            return rePath.test(path) || (rePath2 && rePath2.test(path));
+        else if(reFully)
+            return reFully.test(url);
         else
             return false;
     };
@@ -1619,6 +1624,14 @@ function ProxyMatch(rule) {
 
 var proxyMatchs = [];
 var proxyMatchInsteads = [];
+
+function testMatchs(mathes, path, url) {
+    for(var i = 0; i< mathes.length; ++i) {
+        if(mathes[i].test(path, url))
+            return true;
+    }
+    return false;
+}
 
 (function (){
     for(var i = 0; i< proxyRules.length; ++i) {
@@ -1633,28 +1646,6 @@ var proxyMatchInsteads = [];
     }
 })();
 
-function testProxy(path, url) {
-    var i, pm;
-    var proxy = false;
-    for(i = 0; i< proxyMatchs.length; ++i) {
-        pm = proxyMatchs[i];
-        if(pm.test(path, url)) {
-            proxy = true;
-            break;
-        }
-    }
-    if(proxy) {
-        for(i = 0; i< proxyMatchInsteads.length; ++i) {
-            pm = proxyMatchInsteads[i];
-            if(pm.test(path, url)) {
-                proxy = false;
-                break;
-            }
-        }
-    }
-    return proxy;
-}
-
 function FindProxyForURL(url, host) {
     var useProxy = false;
     var pos = url.indexOf("://");
@@ -1665,7 +1656,13 @@ function FindProxyForURL(url, host) {
             path = url;
         else
             path = url.substring(0, pos);
-        useProxy = testProxy(path, url);
+        if(proxyMatchs.length < 1 && proxyMatchInsteads.length < 1)
+            useProxy = true;
+        else {
+            useProxy = testMatchs(proxyMatchs, path, url);
+            if(useProxy)
+                useProxy = !testMatchs(proxyMatchInsteads, path, url);
+        }
     }
     if(!useProxy)
         return proxyDirect;
