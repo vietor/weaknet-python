@@ -1068,6 +1068,12 @@ class TCPServiceSocket(object):
         self._sock.close()
         self._sock = None
 
+    def getsockname(self):
+        return self._sock.getsockname()
+
+    def getpeername(self):
+        return self._sock.getpeername()
+
     def handle_event(self, sock, fd, event):
         if self._sock and event & POLL_ERR:
             self._on_event_error()
@@ -1546,6 +1552,7 @@ PROTOCOL_SOCKS4A = 2
 PROTOCOL_SOCKS5 = 3
 PROTOCOL_CONNECT = 4
 PROTOCOL_PROXY = 5
+PROTOCOL_WEBFILE = 6
 
 
 def split_host(host):
@@ -1567,6 +1574,105 @@ def make_socks5_addr(atyp, addr, port):
     else:
         return data + struct.pack(">H", port)
 
+PACFILE_TOP = """
+var proxyDirect = "DIRECT";
+var proxyActive = "PROXY {0}:{1}";
+var proxyRules = [
+"""
+PACFILE_BOTTOM = """
+];
+
+function ProxyMatch(rule) {
+    this.instead = false;
+    if(rule.substring(0, 2) == "@@") {
+        this.instead = true;
+        rule = rule.substring(2);
+    }
+
+    function reFixed(str) {
+        str = str.replace(/\//g, "\\/");
+        str = str.replace(/\./g, "\\.");
+        return str;
+    }
+
+    var rePath = null;
+    var reFull = null;
+    if(rule.substring(0, 2) == "||")
+        rePath = new RegExp(reFixed(rule.substring(2)));
+    else if(rule.charAt(0) == "|")
+        rePath = new RegExp("^" + reFixed(rule.substring(1)));
+    else if(rule.charAt(0) == "/" && rule.charAt(rule.length - 1) == "/")
+        reFull = new RegExp(rule.substring(1, rule.length - 2));
+    else
+        reFull = new RegExp(reFixed(rule));
+
+    this.test = function(path, url) {
+        if(rePath)
+            return rePath.test(path);
+        else if(reFull)
+            return reFull.test(url);
+        else
+            return false;
+    };
+}
+
+var proxyMatchs = [];
+var proxyMatchInsteads = [];
+
+(function (){
+    for(var i = 0; i< proxyRules.length; ++i) {
+        var rule = proxyRules[i].trim();
+        if(rule && rule.charAt(0) != "!") {
+            var pm = new ProxyMatch(rule);
+            if(!pm.instead)
+                proxyMatchs.push(pm);
+            else
+                proxyMatchInsteads.push(pm);
+        }
+    }
+})();
+
+function testProxy(path, url) {
+    var i, pm;
+    var proxy = false;
+    for(i = 0; i< proxyMatchs.length; ++i) {
+        pm = proxyMatchs[i];
+        if(pm.test(path, url)) {
+            proxy = true;
+            break;
+        }
+    }
+    if(proxy) {
+        for(i = 0; i< proxyMatchInsteads.length; ++i) {
+            pm = proxyMatchInsteads[i];
+            if(pm.test(path, url)) {
+                proxy = false;
+                break;
+            }
+        }
+    }
+    return proxy;
+}
+
+function FindProxyForURL(url, host) {
+    var useProxy = false;
+    var pos = url.indexOf("://");
+    if(pos > 0) {
+        var path;
+        pos = url.indexOf("?", pos + 3);
+        if(pos < 0)
+            path = url;
+        else
+            path = url.substring(0, pos);
+        useProxy = testProxy(path, url);
+    }
+    if(!useProxy)
+        return proxyDirect;
+    else
+        return proxyActive;
+}
+"""
+
 
 class LocalService(TCPService):
 
@@ -1580,6 +1686,24 @@ class LocalService(TCPService):
         self._shadowsocks = options.shadowsocks
         self._secret = make_secret(options.algorithm, options.secret)
         super(LocalService, self).__init__(controller, conn, options)
+        self._ruletext = ""
+        rulelist = []
+        try:
+            with open(options.rulelist, 'r') as f:
+                content = f.readlines()
+                for line in content:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith('#'):
+                        continue
+                    if line.startswith('!'):
+                        continue
+                    rulelist.append(line)
+        except IOError as e:
+            pass
+        if len(rulelist) > 0:
+            self._ruletext = "    \"" + ("\",\n    \"").join(rulelist) + "\""
 
     def handle_read(self, ssock, data):
         if self._step == STEP_TERMINATE:
@@ -1656,6 +1780,10 @@ class LocalService(TCPService):
                             raise Exception("connect host:port")
                         self._protocol = PROTOCOL_CONNECT
                         self._protocol_data = request.version
+
+                    elif request.path.startswith("/"):
+                        self._protocol = PROTOCOL_WEBFILE
+
                     else:
                         pos = request.path.find("://", 0, 8)
                         if pos < 1 or request.path[:pos].lower() != "http":
@@ -1676,10 +1804,31 @@ class LocalService(TCPService):
                         self._data_to_cache = request.makeBytes(
                             data[request.length:])
 
-                    self._socks5_addr = make_socks5_addr(
-                        0x03, addr, port)
-                    self._source.set_status(STATUS_WRITE)
-                    self.connect(self._remote_addr, self._remote_port)
+                    if self._protocol != PROTOCOL_WEBFILE:
+                        self._socks5_addr = make_socks5_addr(
+                            0x03, addr, port)
+                        self._source.set_status(STATUS_WRITE)
+                        self.connect(self._remote_addr, self._remote_port)
+
+                    else:
+                        if request.path != "/proxy.pac":
+                            data = xbytes(request.version + " 404 Not Found"
+                                          + "\r\nConnection: close"
+                                          + "\r\n\r\n")
+                        else:
+                            laddr = self._source.getsockname()
+                            filedata = PACFILE_TOP.format(laddr[0], laddr[1]) \
+                                + self._ruletext \
+                                + PACFILE_BOTTOM
+                            filedata = xbytes(filedata)
+                            netheader = request.version + " 200 OK" \
+                                + "\r\nConnection: close" \
+                                + "\r\nContent-Type: application/octet-stream" \
+                                + "\r\nContent-Length: " + str(len(filedata)) \
+                                + "\r\n\r\n"
+                            data = xbytes(netheader) + filedata
+
+                        self._source.send(data)
 
             elif self._step == STEP_WAITHDR:
                 size = len(data)
@@ -1913,6 +2062,9 @@ if __name__ == '__main__':
     parser.add_option("-S", "--shadowsocks",
                       action="store_true", dest="shadowsocks", default=False,
                       help="usage shadowsocks compatible mode")
+    parser.add_option("-F", "--rulelist",
+                      dest="rulelist",
+                      help="file of proxy.pac rule list")
     parser.add_option_group(lgroup)
     (options, args) = parser.parse_args()
 
