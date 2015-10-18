@@ -1392,6 +1392,7 @@ class TCPController(LoopHandler):
             service.terminate()
 
 ################################################
+import base64
 
 HTTP_HASBODY = ("POST")
 HTTP_METHODS = ("HEAD", "GET", "POST")
@@ -1681,29 +1682,12 @@ class LocalService(TCPService):
         self._protocol_data = None
         self._socks5_addr = None
         self._data_to_cache = None
+        self._rulelist = options.rulelist
         self._remote_addr = options.remote_addr
         self._remote_port = options.remote_port
         self._shadowsocks = options.shadowsocks
         self._secret = make_secret(options.algorithm, options.secret)
         super(LocalService, self).__init__(controller, conn, options)
-        self._ruletext = ""
-        rulelist = []
-        try:
-            with open(options.rulelist, 'r') as f:
-                content = f.readlines()
-                for line in content:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if line.startswith('#'):
-                        continue
-                    if line.startswith('!'):
-                        continue
-                    rulelist.append(line)
-        except IOError as e:
-            pass
-        if len(rulelist) > 0:
-            self._ruletext = "    \"" + ("\",\n    \"").join(rulelist) + "\""
 
     def handle_read(self, ssock, data):
         if self._step == STEP_TERMINATE:
@@ -1818,8 +1802,7 @@ class LocalService(TCPService):
                         else:
                             laddr = self._source.getsockname()
                             filedata = PACFILE_TOP.format(laddr[0], laddr[1]) \
-                                + self._ruletext \
-                                + PACFILE_BOTTOM
+                                + self._rulelist + PACFILE_BOTTOM
                             filedata = xbytes(filedata)
                             netheader = request.version + " 200 OK" \
                                 + "\r\nConnection: close" \
@@ -2064,7 +2047,7 @@ if __name__ == '__main__':
                       help="usage shadowsocks compatible mode")
     parser.add_option("-F", "--rulelist",
                       dest="rulelist",
-                      help="file of proxy.pac rule list")
+                      help="file of proxy.pac rule list, encode by base64")
     parser.add_option_group(lgroup)
     (options, args) = parser.parse_args()
 
@@ -2078,6 +2061,25 @@ if __name__ == '__main__':
             raise Exception("lost options: -R or --remote_addr")
         if not options.remote_port:
             options.remote_port = DEFAULT_REMOTE_PORT
+
+        rulelist = []
+        try:
+            with open(options.rulelist, 'r') as f:
+                data = f.read(-1).replace("\n", "")
+                for line in xstr(base64.b64decode(data)).split("\n"):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith('#'):
+                        continue
+                    if line.startswith('!'):
+                        continue
+                    rulelist.append(line)
+        except IOError as e:
+            pass
+        options.rulelist = ""
+        if len(rulelist) > 0:
+            options.rulelist = "    \"" + ("\",\n    \"").join(rulelist) + "\""
 
     elif options.role == "remote":
         if options.bind_port == 0:
