@@ -2069,20 +2069,22 @@ if __name__ == '__main__':
             options.remote_port = DEFAULT_REMOTE_PORT
 
         rulelist = []
-        try:
-            with open(options.rulelist, 'r') as f:
-                data = f.read(-1).replace("\n", "")
-                for line in xstr(base64.b64decode(data)).split("\n"):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if line.startswith('#'):
-                        continue
-                    if line.startswith('!'):
-                        continue
-                    rulelist.append(line)
-        except IOError as e:
-            pass
+        if options.rulelist:
+            try:
+                with open(options.rulelist, 'r') as f:
+                    data = f.read(-1).replace("\n", "")
+                    for line in xstr(base64.b64decode(data)).split("\n"):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if line.startswith('#'):
+                            continue
+                        if line.startswith('!'):
+                            continue
+                        rulelist.append(line)
+            except IOError as e:
+                pass
+
         options.rulelist = ""
         if len(rulelist) > 0:
             options.rulelist = "    \"" + ("\",\n    \"").join(rulelist) + "\""
