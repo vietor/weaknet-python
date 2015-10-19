@@ -1647,23 +1647,27 @@ function testMatchs(mathes, path, url) {
 })();
 
 function FindProxyForURL(url, host) {
-    var useProxy = false;
-    var pos = url.indexOf("://");
-    if(pos > 0) {
-        var path;
-        pos = url.indexOf("?", pos + 3);
+    var path, useProxy = false;
+    if(!url) {
+        path = host;
+        url = host;
+    }
+    else {
+        var pos = url.indexOf("://");
         if(pos < 0)
             path = url;
-        else
-            path = url.substring(0, pos);
-        if(proxyMatchs.length < 1 && proxyMatchInsteads.length < 1)
-            useProxy = true;
         else {
-            useProxy = testMatchs(proxyMatchs, path, url);
-            if(useProxy)
-                useProxy = !testMatchs(proxyMatchInsteads, path, url);
+            pos = url.indexOf("?", pos + 3);
+            if(pos < 0)
+                path = url;
+            else
+                path = url.substring(0, pos);
+
         }
     }
+    useProxy = proxyMatchs.length < 1 || testMatchs(proxyMatchs, path, url);
+    if(useProxy)
+        useProxy = !testMatchs(proxyMatchInsteads, path, url);
     if(!useProxy)
         return proxyDirect;
     else
