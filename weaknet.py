@@ -1598,12 +1598,17 @@ function ProxyMatch(rule) {
 
     var rePath = null;
     var rePath2 = null;
+    var rePath3 = null;
     var reFully = null;
     if(rule.substring(0, 2) == "||") {
         var path = rule.substring(2);
         rePath = new RegExp(reFixed(path));
-        if(path.length > 1 && path.charAt(0) == ".")
-            rePath2 = new RegExp(reFixed("//" + path.substring(1)));
+        if(path.length > 1 && path.charAt(0) == ".") {
+            var subpath = path.substring(1);
+            rePath2 = new RegExp(reFixed("//" + subpath));
+            if(subpath.indexOf("/") < 0)
+                rePath3 = new RegExp(reFixed("^" + subpath));
+        }
     }
     else if(rule.charAt(0) == "|")
         rePath = new RegExp("^" + reFixed(rule.substring(1)));
@@ -1614,7 +1619,7 @@ function ProxyMatch(rule) {
 
     this.test = function(path, url) {
         if(rePath)
-            return rePath.test(path) || (rePath2 && rePath2.test(path));
+            return rePath.test(path) || (rePath2 && rePath2.test(path)) || (rePath3 && rePath3.test(path));
         else if(reFully)
             return reFully.test(url);
         else
