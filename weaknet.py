@@ -1583,97 +1583,110 @@ var proxyRules = [
 PACFILE_BOTTOM = """
 ];
 
-function ProxyMatch(rule) {
-    this.instead = false;
-    if(rule.substring(0, 2) == "@@") {
-        this.instead = true;
-        rule = rule.substring(2);
-    }
-
-    function reFixed(str) {
-        str = str.replace(/\//g, "\\/");
-        str = str.replace(/\./g, "\\.");
-        return str;
-    }
-
-    var rePath = null;
-    var rePath2 = null;
-    var rePath3 = null;
-    var reFully = null;
-    if(rule.substring(0, 2) == "||") {
-        var path = rule.substring(2);
-        rePath = new RegExp(reFixed(path));
-        if(path.length > 1 && path.charAt(0) == ".") {
-            var subpath = path.substring(1);
-            rePath2 = new RegExp(reFixed("//" + subpath));
-            if(subpath.indexOf("/") < 0)
-                rePath3 = new RegExp(reFixed("^" + subpath));
-        }
-    }
-    else if(rule.charAt(0) == "|")
-        rePath = new RegExp("^" + reFixed(rule.substring(1)));
-    else if(rule.charAt(0) == "/" && rule.charAt(rule.length - 1) == "/")
-        reFully = new RegExp(rule.substring(1, rule.length - 2));
-    else
-        reFully = new RegExp(reFixed(rule));
-
-    this.test = function(path, url) {
-        if(rePath)
-            return rePath.test(path) || (rePath2 && rePath2.test(path)) || (rePath3 && rePath3.test(path));
-        else if(reFully)
-            return reFully.test(url);
-        else
-            return false;
-    };
+function reWapper(str) {
+    return str.replace(/\//g, "\\/")
+        .replace(/\./g, "\\.")
+        .replace(/\*/g, ".*");
 }
 
-var proxyMatchs = [];
-var proxyMatchInsteads = [];
-
-function testMatchs(mathes, path, url) {
-    for(var i = 0; i< mathes.length; ++i) {
-        if(mathes[i].test(path, url))
+function reMultiTest(res, str) {
+    for(var i=0; i<res.length; ++i) {
+        if(res[i].test(str))
             return true;
     }
     return false;
 }
 
-(function (){
+function ProxyMatch(rule) {
+    var reHost = [], rePath = [], reUrl = null;
+
+    if(rule.substring(0, 2) == "||") {
+        var path = rule.substring(2);
+        if(path.indexOf("/") < 0) {
+            reHost.push(new RegExp(reWapper(path), "i"));
+            if(path.charAt(0) == ".")
+                reHost.push(new RegExp("^"+ reWapper(path.substring(1)), "i"));
+        }
+        else {
+            rePath.push(new RegExp(reWapper(path), "i"));
+            if(path.charAt(0) == ".")
+                rePath.push(new RegExp(reWapper("//" + path.substring(1)), "i"));
+        }
+    }
+    else if(rule.charAt(0) == "|")
+        rePath.push(new RegExp("^" + reWapper(rule.substring(1))));
+    else if(rule.charAt(0) == "/" && rule.charAt(rule.length - 1) == "/")
+        reUrl = new RegExp(rule.substring(1, rule.length - 1));
+    else
+        reUrl = new RegExp(reWapper(rule));
+
+    this.test = function(host, path, url) {
+        if(reHost.length > 0 && host)
+            return reMultiTest(reHost, host);
+        else if(rePath.length > 0 && path)
+            return reMultiTest(rePath, path);
+        else if(reUrl && url)
+            return reUrl.test(url);
+        else
+            return false;
+    };
+}
+
+var proxyMatcher = (function (){
+    var matchIns = [];
+    var matchInsteads = [];
+
     for(var i = 0; i< proxyRules.length; ++i) {
         var rule = proxyRules[i].trim();
         if(rule && rule.charAt(0) != "!") {
-            var pm = new ProxyMatch(rule);
-            if(!pm.instead)
-                proxyMatchs.push(pm);
-            else
-                proxyMatchInsteads.push(pm);
+            if(rule.substring(0, 2) != "@@")
+                matchIns.push(new ProxyMatch(rule));
+            else {
+                rule = rule.substring(2);
+                if(rule)
+                    matchInsteads.push(new ProxyMatch(rule));
+            }
         }
     }
+
+    function testMatchs(mathes, host, path, url) {
+        for(var i = 0; i< mathes.length; ++i) {
+            if(mathes[i].test(host, path, url))
+                return true;
+        }
+    }
+
+    return function(host, path, url) {
+        var proxy = matchIns.length < 1 || testMatchs(matchIns, host, path, url);
+        if(proxy)
+            proxy = !testMatchs(matchInsteads, host, path, url);
+        return proxy;
+    };
 })();
 
 function FindProxyForURL(url, host) {
-    var path, useProxy = false;
-    if(!url) {
-        path = host;
-        url = host;
-    }
-    else {
-        var pos = url.indexOf("://");
-        if(pos < 0)
+    var path = null;
+    if(url) {
+        var hpos = url.indexOf("://");
+        if(hpos < 0)
             path = url;
         else {
-            pos = url.indexOf("?", pos + 3);
+            hpos += 3;
+            if(!host) {
+                pos = url.indexOf("/", hpos);
+                if(pos < 0)
+                    host = url.substring(hpos);
+                else
+                    host = url.substring(hpos, pos);
+            }
+            pos = url.indexOf("?", hpos);
             if(pos < 0)
                 path = url;
             else
                 path = url.substring(0, pos);
-
         }
     }
-    useProxy = proxyMatchs.length < 1 || testMatchs(proxyMatchs, path, url);
-    if(useProxy)
-        useProxy = !testMatchs(proxyMatchInsteads, path, url);
-    if(!useProxy)
+    if(!proxyMatcher(host, path, url))
         return proxyDirect;
     else
         return proxyActive;
