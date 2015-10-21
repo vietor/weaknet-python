@@ -363,7 +363,10 @@ def find_library(possible_lib_names, search_symbol):
     paths = []
     for name in lib_names:
         if os.name == "nt":
-            for directory in os.environ['PATH'].split(os.pathsep):
+            dllpaths = os.environ['PATH'].split(os.pathsep)
+            dllpaths.insert(0, sys.path[0])
+            dllpaths.insert(0, os.getcwd())
+            for directory in dllpaths:
                 fname = os.path.join(directory, name)
                 if os.path.isfile(fname):
                     paths.append(fname)
