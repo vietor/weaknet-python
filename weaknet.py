@@ -1589,6 +1589,8 @@ PACFILE_BOTTOM = """
 function reWapper(str) {
     return str.replace(/\//g, "\\/")
         .replace(/\./g, "\\.")
+        .replace(/\[/g, "\\[")
+        .replace(/\]/g, "\\]")
         .replace(/\*/g, ".*");
 }
 
@@ -1603,26 +1605,6 @@ function reMultiTest(res, str) {
 function ProxyMatch(rule) {
     var reHost = [], rePath = [], reUrl = null;
 
-    if(rule.substring(0, 2) == "||") {
-        var path = rule.substring(2);
-        if(path.indexOf("/") < 0) {
-            reHost.push(new RegExp(reWapper(path), "i"));
-            if(path.charAt(0) == ".")
-                reHost.push(new RegExp("^"+ reWapper(path.substring(1)), "i"));
-        }
-        else {
-            rePath.push(new RegExp(reWapper(path), "i"));
-            if(path.charAt(0) == ".")
-                rePath.push(new RegExp(reWapper("//" + path.substring(1)), "i"));
-        }
-    }
-    else if(rule.charAt(0) == "|")
-        rePath.push(new RegExp("^" + reWapper(rule.substring(1))));
-    else if(rule.charAt(0) == "/" && rule.charAt(rule.length - 1) == "/")
-        reUrl = new RegExp(rule.substring(1, rule.length - 1));
-    else
-        reUrl = new RegExp(reWapper(rule));
-
     this.test = function(host, path, url) {
         if(reHost.length > 0 && host)
             return reMultiTest(reHost, host);
@@ -1633,6 +1615,37 @@ function ProxyMatch(rule) {
         else
             return false;
     };
+
+    (function() {
+        var path;
+        if(rule.substring(0, 2) == "||") {
+            path = rule.substring(2);
+            if(!path)
+                return;
+            if(path.indexOf("/") < 0) {
+                reHost.push(new RegExp(reWapper(path), "i"));
+                if(path.length > 1 && path.charAt(0) == ".")
+                    reHost.push(new RegExp("^"+ reWapper(path.substring(1)), "i"));
+            }
+            else {
+                rePath.push(new RegExp(reWapper(path), "i"));
+                if(path.length > 1 && path.charAt(0) == ".")
+                    rePath.push(new RegExp(reWapper("//" + path.substring(1)), "i"));
+            }
+        }
+        else if(rule.charAt(0) == "|") {
+            path = rule.substring(1);
+            if(!path)
+                return;
+            rePath.push(new RegExp("^" + reWapper(path)));
+        }
+        else if(rule.length < 2)
+            reUrl = new RegExp(reWapper(rule));
+        else if(rule.charAt(0) == "/" && rule.charAt(rule.length - 1) == "/")
+            reUrl = new RegExp(rule.substring(1, rule.length - 1));
+        else if(rule.charAt(0) != "[" || rule.charAt(rule.length - 1) != "]")
+            reUrl = new RegExp(reWapper(rule));
+    })();
 }
 
 var proxyMatcher = (function (){
@@ -1657,6 +1670,7 @@ var proxyMatcher = (function (){
             if(mathes[i].test(host, path, url))
                 return true;
         }
+        return false;
     }
 
     return function(host, path, url) {
