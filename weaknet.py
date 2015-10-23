@@ -1586,97 +1586,84 @@ var proxyRules = [
 PACFILE_BOTTOM = """
 ];
 
+var T_HOST = 0, T_PATH = 1, T_URL = 2;
+
 function reWapper(str) {
-    return str.replace(/\//g, "\\\\/")
-        .replace(/\./g, "\\\\.")
+    return str.replace(/\//g, "\\/")
+        .replace(/\./g, "\\.")
         .replace(/\*/g, ".*");
 }
 
-function reMultiTest(res, str) {
-    for(var i=0; i<res.length; ++i) {
-        if(res[i].test(str))
+function testRule(rules, host, path, url) {
+    for(var i = 0; i< rules.length; ++i) {
+        var rule = rules[i];
+        var re = new RegExp(rule.re);
+        if(rule.t == T_HOST) {
+            if(host && re.test(host))
+                return true;
+        }
+        else if(rule.t == T_PATH) {
+            if(path && re.test(path))
+                return true;
+        }
+        else if(url && re.test(url))
             return true;
     }
     return false;
 }
 
-function ProxyMatch(rule) {
-    var reHost = [], rePath = [], reUrl = null;
-
+function parseRule(rules, rule) {
     if(rule.substring(0, 2) == "||") {
         rule = rule.substring(2);
         if(rule) {
             if(rule.indexOf("/") < 0) {
-                reHost.push(new RegExp(reWapper(rule) + "$", "i"));
+                rules.push({t: T_HOST, re: reWapper(rule) + "$"});
                 if(rule.length > 1 && rule.charAt(0) == ".")
-                    reHost.push(new RegExp("^"+ reWapper(rule.substring(1)) + "$", "i"));
+                    rules.push({t: T_HOST, re: "^"+ reWapper(rule.substring(1)) + "$"});
             }
             else {
-                rePath.push(new RegExp(reWapper(rule), "i"));
+                rules.push({t: T_PATH, re: reWapper(rule)});
                 if(rule.length > 1 && rule.charAt(0) == ".")
-                    rePath.push(new RegExp(reWapper("://" + rule.substring(1)), "i"));
+                    rules.push({t: T_PATH, re: reWapper("://" + rule.substring(1))});
             }
         }
     }
     else if(rule.charAt(0) == "|") {
         rule = rule.substring(1);
         if(rule)
-            rePath.push(new RegExp("^" + reWapper(rule)));
+            rules.push({t: T_PATH, re: "^" + reWapper(rule)});
     }
     else if(rule.length < 2)
-        reUrl = new RegExp(reWapper(rule));
+        rules.push({t: T_URL, re: reWapper(rule)});
     else if(rule.charAt(0) == "/" && rule.charAt(rule.length - 1) == "/")
-        reUrl = new RegExp(rule.substring(1, rule.length - 1));
+        rules.push({t: T_URL, re: rule.substring(1, rule.length - 1)});
     else
-        reUrl = new RegExp(reWapper(rule));
-
-    this.test = function(host, path, url) {
-        if(host && reHost.length > 0)
-            return reMultiTest(reHost, host);
-        else if(path && rePath.length > 0)
-            return reMultiTest(rePath, path);
-        else if(url && reUrl)
-            return reUrl.test(url);
-        else
-            return false;
-    };
+        rules.push({t: T_URL, re: reWapper(rule)});
+    return rules;
 }
 
-function testMatchs(mathes, host, path, url) {
-    for(var i = 0; i< mathes.length; ++i) {
-        if(mathes[i].test(host, path, url)) {
-            return true;
+var ruleInclude = [];
+var ruleExclude = [];
+for(var i = 0; i< proxyRules.length; ++i) {
+    var rule = proxyRules[i].trim();
+    if(rule && rule.charAt(0) != "!" && rule.charAt(0) != "[") {
+        if(rule.substring(0, 2) != "@@")
+            parseRule(ruleInclude, rule);
+        else {
+            rule = rule.substring(2);
+            if(rule)
+                parseRule(ruleExclude, rule);
         }
     }
-    return false;
 }
+proxyRules = [];
 
-function ProxyMatcher(rules) {
-    var matchIns = [];
-    var matchInsteads = [];
-
-    for(var i = 0; i< rules.length; ++i) {
-        var rule = rules[i].trim();
-        if(rule && rule.charAt(0) != "!" && rule.charAt(0) != "[") {
-            if(rule.substring(0, 2) != "@@")
-                matchIns.push(new ProxyMatch(rule));
-            else {
-                rule = rule.substring(2);
-                if(rule)
-                    matchInsteads.push(new ProxyMatch(rule));
-            }
-        }
-    }
-
-    this.test = function(host, path, url) {
-        var proxy = matchIns.length < 1 || testMatchs(matchIns, host, path, url);
-        if(proxy)
-            proxy = !testMatchs(matchInsteads, host, path, url);
-        return proxy;
-    };
+function proxyMatch(host, path, url) {
+    var proxy = ruleInclude.length < 1 || testRule(ruleInclude, host, path, url);
+    if(proxy)
+        proxy = !testRule(ruleExclude, host, path, url);
+    return proxy;
 }
-
-var proxyMatcher = new ProxyMatcher(proxyRules);
 
 function FindProxyForURL(url, host) {
     var path = null;
@@ -1700,7 +1687,7 @@ function FindProxyForURL(url, host) {
                 path = url.substring(0, pos);
         }
     }
-    if(!proxyMatcher.test(host, path, url))
+    if(!proxyMatch(host, path, url))
         return proxyDirect;
     else
         return proxyActive;
