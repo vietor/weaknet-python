@@ -1589,8 +1589,8 @@ PACFILE_BOTTOM = """
 var T_HOST = 0, T_PATH = 1, T_URL = 2;
 
 function reWapper(str) {
-    return str.replace(/\//g, "\\/")
-        .replace(/\./g, "\\.")
+    return str.replace(/\//g, "\\\\/")
+        .replace(/\./g, "\\\\.")
         .replace(/\*/g, ".*");
 }
 
@@ -1639,7 +1639,6 @@ function parseRule(rules, rule) {
         rules.push({t: T_URL, re: rule.substring(1, rule.length - 1)});
     else
         rules.push({t: T_URL, re: reWapper(rule)});
-    return rules;
 }
 
 var ruleInclude = [];
