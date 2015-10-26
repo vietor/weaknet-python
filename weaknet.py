@@ -1587,6 +1587,7 @@ PACFILE_BOTTOM = """
 ];
 
 var T_HOST = 0, T_PATH = 1, T_URL = 2;
+var E_EQ = 0, E_EL = 1, E_ER = 2, E_IN = 3, E_RE = 4;
 
 function reWapper(str) {
     return str.replace(/\//g, "\\\\/")
@@ -1594,22 +1595,74 @@ function reWapper(str) {
         .replace(/\*/g, ".*");
 }
 
+function execTextEQ(str, text) {
+    return str == text;
+}
+
+function execTextEL(str, text) {
+    var len1 = str.length;
+    var len2 = text.length;
+    return len1 <= len2 && text.substring(0, len1) == str;
+}
+
+function execTextER(str, text) {
+    var len1 = str.length;
+    var len2 = text.length;
+    return len1 <= len2 && text.substring(len2 - len1) == str;
+}
+
+function execTextIN(str, text) {
+    return text.indexOf(str) >= 0;
+}
+
+function execTextRE(str, text) {
+    return (new RegExp(str)).test(text);
+}
+
 function testRule(rules, host, path, url) {
     for(var i = 0; i< rules.length; ++i) {
+        var text;
         var rule = rules[i];
-        var re = new RegExp(rule.re);
-        if(rule.t == T_HOST) {
-            if(host && re.test(host))
+        if(rule.t == T_HOST)
+            text = host;
+        else if(rule.t == T_PATH)
+            text = path;
+        else if(rule.t == T_URL)
+            text = url;
+        if(text) {
+            var succ = false;
+            if(rule.e == E_EQ)
+                succ = execTextEQ(rule.s, text);
+            else if(rule.e == E_EL)
+                succ = execTextEL(rule.s, text);
+            else if(rule.e == E_ER)
+                succ = execTextER(rule.s, text);
+            else if(rule.e == E_IN)
+                succ = execTextIN(rule.s, text);
+            else if(rule.e == E_RE)
+                succ = execTextRE(rule.s, text);
+            if(succ)
                 return true;
         }
-        else if(rule.t == T_PATH) {
-            if(path && re.test(path))
-                return true;
-        }
-        else if(url && re.test(url))
-            return true;
     }
     return false;
+}
+
+function wrapRule(rule, str) {
+    if(rule.e == E_RE || str.indexOf("*") < 0)
+        rule.s = str;
+    else {
+        if(rule.e == E_EQ)
+            rule.s = "^" + reWapper(str) + "$";
+        else if(rule.e == E_EL)
+            rule.s = "^" + reWapper(str);
+        else if(rule.e == E_ER)
+            rule.s = reWapper(str) + "$";
+        else
+            rule.s = reWapper(str);
+        rule.e = E_RE;
+    }
+    return rule;
 }
 
 function parseRule(rules, rule) {
@@ -1617,28 +1670,28 @@ function parseRule(rules, rule) {
         rule = rule.substring(2);
         if(rule) {
             if(rule.indexOf("/") < 0) {
-                rules.push({t: T_HOST, re: reWapper(rule) + "$"});
                 if(rule.length > 1 && rule.charAt(0) == ".")
-                    rules.push({t: T_HOST, re: "^"+ reWapper(rule.substring(1)) + "$"});
+                    rules.push(wrapRule({t: T_HOST, e: E_EQ}, rule.substring(1)));
+                rules.push(wrapRule({t: T_HOST, e: E_ER}, rule));
             }
             else {
-                rules.push({t: T_PATH, re: reWapper(rule)});
                 if(rule.length > 1 && rule.charAt(0) == ".")
-                    rules.push({t: T_PATH, re: reWapper("://" + rule.substring(1))});
+                    rules.push(wrapRule({t: T_PATH, e: E_IN}, "://" + rule.substring(1)));
+                rules.push({t: T_PATH, e: E_IN, re: reWapper(rule)});
             }
         }
     }
     else if(rule.charAt(0) == "|") {
         rule = rule.substring(1);
         if(rule)
-            rules.push({t: T_PATH, re: "^" + reWapper(rule)});
+            rules.push(wrapRule({t: T_PATH, e: E_EL}, rule));
     }
     else if(rule.length < 2)
-        rules.push({t: T_URL, re: reWapper(rule)});
+        rules.push(wrapRule({t: T_URL, e: E_IN}, rule));
     else if(rule.charAt(0) == "/" && rule.charAt(rule.length - 1) == "/")
-        rules.push({t: T_URL, re: rule.substring(1, rule.length - 1)});
+        rules.push(wrapRule({t: T_URL, e: E_RE}, rule.substring(1, rule.length - 1)));
     else
-        rules.push({t: T_URL, re: reWapper(rule)});
+        rules.push(wrapRule({t: T_URL, e: E_IN}, rule));
 }
 
 var ruleInclude = [];
