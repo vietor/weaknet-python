@@ -3,7 +3,7 @@
 from __future__ import division, print_function, with_statement
 
 
-VERSION = "1.6.3"
+VERSION = "1.7.0"
 
 DEFAULT_LOCAL_PORT = 51080
 DEFAULT_REMOTE_PORT = 58080
@@ -345,7 +345,7 @@ class EventLoop(object):
                         logging.error('loop timer: %s', e)
 
 ################################################
-from ctypes import c_char_p, c_int, c_long, byref, create_string_buffer, c_void_p
+from ctypes import c_char_p, c_int, c_long, byref, create_string_buffer, c_void_p, c_ulonglong
 
 
 def find_library(possible_lib_names, search_symbol):
@@ -470,10 +470,58 @@ def Rrc4md5Crypto(alg, key, iv, op, key_as_bytes=0, d=None, salt=None,
                   i=1, padding=1):
     return OpenSSLCrypto(b'rc4', md5(key, iv), b'', op)
 
+libsodium = find_library('sodium', 'crypto_stream_salsa20_xor_ic')
+if libsodium:
+    libsodium_block_size = 64
+    libsodium_buf_size = 2048
+    libsodium_buf = create_string_buffer(libsodium_buf_size)
+    libsodium.crypto_stream_salsa20_xor_ic.restype = c_int
+    libsodium.crypto_stream_salsa20_xor_ic.argtypes = (c_void_p, c_char_p,
+                                                       c_ulonglong,
+                                                       c_char_p, c_ulonglong,
+                                                       c_char_p)
+    libsodium.crypto_stream_chacha20_xor_ic.restype = c_int
+    libsodium.crypto_stream_chacha20_xor_ic.argtypes = (c_void_p, c_char_p,
+                                                        c_ulonglong,
+                                                        c_char_p, c_ulonglong,
+                                                        c_char_p)
+
+
+class SodiumCrypto(object):
+
+    def __init__(self, cipher_name, key, iv, op):
+        self.nbytes = 0
+        self.key = key
+        self.iv = iv
+        self.key_ptr = c_char_p(key)
+        self.iv_ptr = c_char_p(iv)
+        if cipher_name == 'salsa20':
+            self.cipher = libsodium.crypto_stream_salsa20_xor_ic
+        elif cipher_name == 'chacha20':
+            self.cipher = libsodium.crypto_stream_chacha20_xor_ic
+        else:
+            raise Exception('cipher %s not enabled in libsodium' % cipher_name)
+
+    def update(self, data):
+        global libsodium_buf, libsodium_buf_size
+        l = len(data)
+        padding = self.nbytes % libsodium_block_size
+        if libsodium_buf_size < padding + l:
+            libsodium_buf_size = (padding + l) * 2
+            libsodium_buf = create_string_buffer(libsodium_buf_size)
+
+        if padding:
+            data = (b'\0' * padding) + data
+
+        self.nbytes += l
+        self.cipher(byref(libsodium_buf), c_char_p(data), padding + l,
+                    self.iv_ptr, int(self.nbytes / libsodium_block_size), self.key_ptr)
+        return libsodium_buf.raw[padding:padding + l]
+
 secret_cached_keys = {}
 secret_method_supported = {}
 if libcrypto:
-    secret_method_supported = {
+    secret_method_supported.update({
         'aes-128-cfb': (16, 16, OpenSSLCrypto),
         'aes-192-cfb': (24, 16, OpenSSLCrypto),
         'aes-256-cfb': (32, 16, OpenSSLCrypto),
@@ -500,7 +548,12 @@ if libcrypto:
         'rc4': (16, 0, OpenSSLCrypto),
         'rc4-md5': (16, 16, Rrc4md5Crypto),
         'seed-cfb': (16, 16, OpenSSLCrypto),
-    }
+    })
+if libsodium:
+    secret_method_supported.update({
+        'salsa20': (32, 8, SodiumCrypto),
+        'chacha20': (32, 8, SodiumCrypto),
+    })
 
 
 def EVP_BytesToKey(password, key_len, iv_len):
