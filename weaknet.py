@@ -2167,10 +2167,10 @@ if __name__ == '__main__':
     lgroup.add_option("-P", "--remote-port", default="0",
                       type="int", dest="remote_port",
                       help="remote server net port")
-    parser.add_option("-S", "--shadowsocks",
+    lgroup.add_option("-S", "--shadowsocks",
                       action="store_true", dest="shadowsocks", default=False,
                       help="usage shadowsocks compatible mode")
-    parser.add_option("-F", "--rulelist",
+    lgroup.add_option("-F", "--rulelist",
                       dest="rulelist",
                       help="file of proxy.pac rule list, encode by base64")
     parser.add_option_group(lgroup)
