@@ -1480,7 +1480,7 @@ class MiniHttpRequest(object):
     def __str__(self):
         lines = []
         lines.append(self.method + " " + self.path + " " + self.version)
-        for key, value in self._headers.iteritems():
+        for key, value in self._headers.items():
             lines.append(self._header_ks[key] + ": " + value)
         return "\r\n".join(lines) + "\r\n\r\n"
 
