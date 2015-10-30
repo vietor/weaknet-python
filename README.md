@@ -6,14 +6,15 @@ Some python code for fucking world.
 # Usage
 
 Just *onefile* for provider all service.
-> require:
->> python >= 2.6, compatible 3.x  
-> recommend:
->> openssl for most crypto.  
->> sodium for chacha20 & salsa20
+
+Require:
+>> python >= 2.6, compatible 3.x
+
+Recommend:
+> openssl for most crypto.
+> sodium for chacha20 & salsa20
 
 More discritption:
-
 ```sh
 python weaknet.py --help
 ```
