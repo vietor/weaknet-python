@@ -8,10 +8,10 @@ Some python code for fucking world.
 Just *onefile* for provider all service.
 
 Require:
->> python >= 2.6, compatible 3.x
+> python >= 2.6, compatible 3.x
 
 Recommend:
-> openssl for most crypto.
+> openssl for most crypto.  
 > sodium for chacha20 & salsa20
 
 More discritption:
