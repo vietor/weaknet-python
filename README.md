@@ -1,9 +1,18 @@
 pysunday
 ========
 
-Some python code for fucking world
+Some python code for fucking world.
 
 # Usage
+
+Just *onefile* for provider all service.
+> require:  
+> python >= 2.6, compatible 3.x  
+> recommend:  
+> openssl for most crypto.  
+> sodium for chacha20 & salsa20
+
+More discritption:
 
 ```sh
 python weaknet.py --help
@@ -18,7 +27,8 @@ A modifyed socket proxy server, compatible *shadowsocks* protocol.
 
 A wrappered proxy server, multiple protocal support.
 > default bind port 51080  
-> Add -S for direct usage *shadowsocks* server.
+> --shadowsocks for direct usage *shadowsocks* server.  
+> --rulelist compatible gfwlist format
 
 ### SOCKS4
 Direct usage.
@@ -33,6 +43,6 @@ Direct usage. Unsupoort authentication.
 Direct usage. Unsupoort authentication.
 
 ### AUTO PROXY
-Usage "http://<bind ip>:<bind port>/proxy.pac". Unsupoort authentication.
+Usage like "http://127.0.0.1:51080/proxy.pac". Unsupoort authentication.
 
 
