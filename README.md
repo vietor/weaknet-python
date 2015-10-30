@@ -6,11 +6,11 @@ Some python code for fucking world.
 # Usage
 
 Just *onefile* for provider all service.
-> require:  
->   python >= 2.6, compatible 3.x  
-> recommend:  
->   openssl for most crypto.  
->   sodium for chacha20 & salsa20
+> require:
+>> python >= 2.6, compatible 3.x  
+> recommend:
+>> openssl for most crypto.  
+>> sodium for chacha20 & salsa20
 
 More discritption:
 
@@ -21,7 +21,7 @@ python weaknet.py --help
 ## Role: remote
 
 A modifyed socket proxy server, compatible *shadowsocks* protocol.
-> default bind port: 51080
+> default bind port: 58080
 
 ## Role: local
 
