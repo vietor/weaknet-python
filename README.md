@@ -1,7 +1,7 @@
 pysunday
 ========
 
-Some python code for fucking world.
+A limited network transport implementation in PYTHON.
 
 # Usage
 
