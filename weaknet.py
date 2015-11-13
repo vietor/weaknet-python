@@ -1882,91 +1882,107 @@ class LocalService(TCPService):
                     try:
                         request = parse_http_request(data, size)
                     except:
-                        raise Exception("proxy protocol")
-                    if request.method == "CONNECT":
-                        addr, port = split_host(request.path)
-                        if port < 1:
-                            raise Exception("connect host:port")
-                        self._protocol = PROTOCOL_CONNECT
-                        self._protocol_data = request.version
-
-                    elif request.path.startswith("/"):
-                        self._protocol = PROTOCOL_WEBFILE
-
+                        self._step = STEP_WAITHDR
+                        self._protocol_data = data
                     else:
-                        pos = request.path.find("://", 0, 8)
-                        if pos < 1 or request.path[:pos].lower() != "http":
-                            raise Exception("proxy path #1")
-                        pos = request.path.find("/", 8)
-                        if pos < 1:
-                            raise Exception("proxy path #2")
-                        addr, _port = split_host(request.path[7: pos])
-                        if _port > 0:
-                            port = _port
-                        else:
-                            port = 80
-
-                        request.path = request.path[pos:]
-                        request.add_header("Connection", "close")
-                        request.remove_header("Proxy-Connection")
-                        self._protocol = PROTOCOL_PROXY
-                        self._data_to_cache = request.makeBytes(
-                            data[request.length:])
-
-                    if self._protocol != PROTOCOL_WEBFILE:
-                        self._socks5_addr = make_socks5_addr(
-                            0x03, addr, port)
-                        self._source.set_status(STATUS_WRITE)
-                        self.connect(self._remote_addr, self._remote_port)
-
-                    else:
-                        if request.path != "/proxy.pac":
-                            data = xbytes(request.version + " 404 Not Found"
-                                          + "\r\nConnection: close"
-                                          + "\r\n\r\n")
-                        else:
-                            laddr = self._source.getsockname()
-                            filedata = PACFILE_TOP.format(laddr[0], laddr[1]) \
-                                + self._rulelist + PACFILE_BOTTOM
-                            filedata = xbytes(filedata)
-                            netheader = request.version + " 200 OK" \
-                                + "\r\nConnection: close" \
-                                + "\r\nContent-Type: application/octet-stream" \
-                                + "\r\nContent-Length: " + str(len(filedata)) \
-                                + "\r\n\r\n"
-                            data = xbytes(netheader) + filedata
-
-                        self._source.send(data)
+                        self._process_http_proxy(request, data)
 
             elif self._step == STEP_WAITHDR:
-                size = len(data)
-                if size < 7 or xord(data[0]) != 0x05:
-                    raise Exception("socks5 header")
-                if xord(data[1]) != 1:  # CONNECT
-                    raise Exception("socks5 command")
-                atyp = xord(data[3])
-                if atyp == 0x01:
-                    rear = 10
-                elif atyp == 0x03:
-                    rear = 7 + xord(data[4])
-                elif atyp == 0x04:
-                    rear = 22
-                else:
-                    raise Exception("socks5 address")
-                if rear > size:
-                    raise Exception("socks5 length")
-                if rear == size:
-                    self._socks5_addr = data[3:]
-                else:
-                    self._socks5_addr = data[3:rear]
-                    self._data_to_cache = data[rear:]
+                if self._protocol == PROTOCOL_SOCKS5:
+                    size = len(data)
+                    if size < 7 or xord(data[0]) != 0x05:
+                        raise Exception("socks5 header")
+                    if xord(data[1]) != 1:  # CONNECT
+                        raise Exception("socks5 command")
+                    atyp = xord(data[3])
+                    if atyp == 0x01:
+                        rear = 10
+                    elif atyp == 0x03:
+                        rear = 7 + xord(data[4])
+                    elif atyp == 0x04:
+                        rear = 22
+                    else:
+                        raise Exception("socks5 address")
+                    if rear > size:
+                        raise Exception("socks5 length")
+                    if rear == size:
+                        self._socks5_addr = data[3:]
+                    else:
+                        self._socks5_addr = data[3:rear]
+                        self._data_to_cache = data[rear:]
 
-                self._source.set_status(STATUS_WRITE)
-                self.connect(self._remote_addr, self._remote_port)
+                    self._source.set_status(STATUS_WRITE)
+                    self.connect(self._remote_addr, self._remote_port)
+
+                else:
+                    try:
+                        datax = self._protocol_data + data
+                        self._protocol_data = None
+                        request = parse_http_request(datax, len(datax))
+                    except:
+                        self._protocol_data = datax
+                    else:
+                        self._process_http_proxy(request, datax)
 
         elif ssock == self._target:
             if self._step == STEP_TRANSPORT:
                 self._source.send(self._secret.decrypt(data))
+
+    def _process_http_proxy(self, request, data):
+        if request.method == "CONNECT":
+            addr, port = split_host(request.path)
+            if port < 1:
+                raise Exception("connect host:port")
+            self._protocol = PROTOCOL_CONNECT
+            self._protocol_data = request.version
+
+        elif request.path.startswith("/"):
+            self._protocol = PROTOCOL_WEBFILE
+
+        else:
+            pos = request.path.find("://", 0, 8)
+            if pos < 1 or request.path[:pos].lower() != "http":
+                raise Exception("proxy path #1")
+            pos = request.path.find("/", 8)
+            if pos < 1:
+                raise Exception("proxy path #2")
+            addr, _port = split_host(request.path[7: pos])
+            if _port > 0:
+                port = _port
+            else:
+                port = 80
+
+            request.path = request.path[pos:]
+            request.add_header("Connection", "close")
+            request.remove_header("Proxy-Connection")
+            self._protocol = PROTOCOL_PROXY
+            self._data_to_cache = request.makeBytes(
+                data[request.length:])
+
+        if self._protocol != PROTOCOL_WEBFILE:
+            self._socks5_addr = make_socks5_addr(
+                0x03, addr, port)
+            self._source.set_status(STATUS_WRITE)
+            self.connect(self._remote_addr, self._remote_port)
+
+        else:
+            if request.path != "/proxy.pac":
+                data = xbytes(request.version + " 404 Not Found"
+                              + "\r\nConnection: close"
+                              + "\r\n\r\n")
+            else:
+                laddr = self._source.getsockname()
+                filedata = PACFILE_TOP.format(laddr[0], laddr[1]) \
+                    + self._rulelist + PACFILE_BOTTOM
+                filedata = xbytes(filedata)
+                netheader = request.version + " 200 OK" \
+                    + "\r\nConnection: close" \
+                    + "\r\nContent-Type: application/octet-stream" \
+                    + "\r\nContent-Length: " + str(len(filedata)) \
+                    + "\r\n\r\n"
+                data = xbytes(netheader) + filedata
+
+            self._source.send(data)
 
     def _connect_error(self):
         data = None
