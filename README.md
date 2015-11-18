@@ -1,4 +1,4 @@
-pysunday
+pyweaknet
 ========
 
 A limited network transport implementation in PYTHON.
