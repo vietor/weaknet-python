@@ -2190,7 +2190,13 @@ if __name__ == '__main__':
                       dest="rulelist",
                       help="file of proxy.pac rule list, encode by base64")
     parser.add_option_group(lgroup)
-    (options, args) = parser.parse_args()
+
+    if len(sys.argv) > 1:
+        sys_argv = sys.argv
+    else:
+        sys_argv = [sys.argv[0], "--version"]
+
+    (options, args) = parser.parse_args(sys_argv)
 
     if not options.secret:
         raise Exception("lost options: -s or --secret")
