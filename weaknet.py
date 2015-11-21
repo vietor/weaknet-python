@@ -1990,7 +1990,7 @@ class LocalService(TCPService):
             data = b'\x00\x5b\x00\x00\x00\x00\x10\x10'
         elif self._protocol == PROTOCOL_SOCKS5:
             data = b'\x05\x04\00\x01\x00\x00\x00\x00\x10\x10'
-        elif self._protocol in (PROTOCOL_CONNECT, PROTOCOL_PROXY):
+        elif self._protocol == PROTOCOL_CONNECT:
             data = xbytes(self._protocol_data +
                           " 407 Unauthorized\r\n\r\n")
 
