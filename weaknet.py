@@ -1519,15 +1519,17 @@ def parse_http_request(data, size):
         raise Exception("http headers")
     request.length = rear + 4
     pos = data.find(b"\r\n", last + 8, rear)
-    if pos < 1 \
-       or pos + 2 >= size:
+    if pos < 0:
+        pos = rear
+    elif pos < 1 or pos + 2 >= size:
         raise Exception("http version")
     request.version = xstr(data[last: pos])
     last = pos + 2
-    for line in xstr(data[last: rear]).split("\r\n"):
-        pos = line.find(":")
-        if pos > 0:
-            request.add_header(line[:pos], line[pos + 1:].lstrip())
+    if last < rear:
+        for line in xstr(data[last: rear]).split("\r\n"):
+            pos = line.find(":")
+            if pos > 0:
+                request.add_header(line[:pos], line[pos + 1:].lstrip())
     return request
 
 
