@@ -3,7 +3,7 @@
 from __future__ import division, print_function, with_statement
 
 
-VERSION = "1.7.2.2"
+VERSION = "1.7.3"
 
 DEFAULT_LOCAL_PORT = 51080
 DEFAULT_REMOTE_PORT = 58080
@@ -1856,16 +1856,16 @@ class LocalService(TCPService):
                         pos = rear
                         found = False
                         while pos < size:
-                            if xord(data[pos - 1]) == 0x00:
+                            if xord(data[pos]) == 0x00:
                                 found = True
                                 break
                             pos = pos + 1
                         if not found:
                             raise Exception("socks4a hosthame")
-                        rear = pos + 1
                         atyp = 0x03
-                        addr = xstr(data[pos:size - 1])
+                        addr = xstr(data[rear:pos])
                         self._protocol = PROTOCOL_SOCKS4A
+                        rear = pos + 1
 
                     else:
                         atyp = 0x01
