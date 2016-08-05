@@ -2131,12 +2131,13 @@ def daemonize():
         logging.error("fork #2: %s", e)
         sys.exit(1)
 
-    dnull = file("/dev/null", "rw")
+    rnull = open("/dev/null", "r")
+    wnull = open("/dev/null", "w")
     sys.stdout.flush()
     sys.stderr.flush()
-    os.dup2(dnull.fileno(), sys.stdin.fileno())
-    os.dup2(dnull.fileno(), sys.stdout.fileno())
-    os.dup2(dnull.fileno(), sys.stderr.fileno())
+    os.dup2(rnull.fileno(), sys.stdin.fileno())
+    os.dup2(wnull.fileno(), sys.stdout.fileno())
+    os.dup2(wnull.fileno(), sys.stderr.fileno())
 
 
 if __name__ == '__main__':
