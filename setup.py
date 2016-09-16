@@ -12,8 +12,8 @@ setup(
     author_email='vietor.liu@gmail.com',
     url='https://github.com/vietor/pyweaknet',
     license='MIT',
-    package_dir={'': 'src'},
-    packages=find_packages('src'),
+    package_dir={'': 'weaknet'},
+    packages=find_packages('weaknet'),
     include_package_data=True,
     requires=[
         'python (>=2.6.0)',
