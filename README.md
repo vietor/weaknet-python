@@ -3,6 +3,21 @@ pyweaknet
 
 A limited network transport implementation in PYTHON.
 
+# Install
+
+## pip
+
+``` sh
+pip install weaknet
+```
+
+## direct file
+
+``` sh
+cd <you execute path>
+curl -O https://raw.githubusercontent.com/vietor/pyweaknet/master/bin/weaknet.py
+```
+
 # Usage
 
 Just *onefile* for provider all service.
@@ -16,7 +31,7 @@ Recommend:
 
 More discritption:
 ```sh
-python weaknet.py --help
+weaknet.py --help
 ```
 
 ## Role: remote
