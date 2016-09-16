@@ -11,18 +11,10 @@ setup(
     author='Vietor Liu',
     author_email='vietor.liu@gmail.com',
     url='https://github.com/vietor/pyweaknet',
+    download_url='https://github.com/vietor/pyweaknet/tarball/{0}'.format(VERSION),
     license='MIT',
-    package_dir={'': 'weaknet'},
-    packages=find_packages('weaknet'),
-    include_package_data=True,
+    scripts=['bin/weaknet'],
     requires=[
         'python (>=2.6.0)',
-    ],
-    entry_points={
-        'console_scripts': [
-            'weaknet = weaknet.weaknet:main',
-        ]
-    },
-    install_requires=[],
-    data_files=[],
+    ]
 )
