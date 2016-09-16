@@ -1,7 +1,7 @@
 pyweaknet
 ========
 
-A limited network transport implementation in PYTHON.
+A limited network transport tool in PYTHON.
 
 # Install
 
@@ -16,6 +16,7 @@ pip install weaknet
 ``` sh
 cd <you execute path>
 curl -O https://raw.githubusercontent.com/vietor/pyweaknet/master/bin/weaknet.py
+chmod +x weaknet.py
 ```
 
 # Usage
