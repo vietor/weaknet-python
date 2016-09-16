@@ -13,7 +13,7 @@ setup(
     url='https://github.com/vietor/pyweaknet',
     download_url='https://github.com/vietor/pyweaknet/tarball/{0}'.format(VERSION),
     license='MIT',
-    scripts=['bin/weaknet'],
+    scripts=['bin/weaknet.py'],
     requires=[
         'python (>=2.6.0)',
     ]
