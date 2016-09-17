@@ -15,7 +15,7 @@ try:
         m = re.search('VERSION[\ ]*\=[\ ]*\"([0-9\.]*)\"', f.read())
         if not m:
             raise Exception("Not found `VERSION` in script file")
-        VERSION = m.group(0).split('"')[1].strip()
+        VERSION = m.group(1)
 except IOError as e:
     raise Exception("Not found the script file: " + SCRIPT_URI)
 
