@@ -1,6 +1,9 @@
 pyweaknet
 ========
 
+[![GitHub release](https://img.shields.io/github/release/vietor/pyweaknet.svg)](https://github.com/vietor/pyweaknet/releases/latest)
+[![License MIT](https://img.shields.io/github/license/vietor/pyweaknet.svg)](http://opensource.org/licenses/MIT)
+
 A limited network transport tool in PYTHON.
 
 # Install
