@@ -1,8 +1,23 @@
+#!/usr/bin/env python
+
+from __future__ import print_function, with_statement
+
+import re
 import sys
 from setuptools import setup, find_packages
 
-VERSION = '1.7.3'
+SCRIPT_URI = 'bin/weaknet.py'
 GITHUB_URL = 'https://github.com/vietor/pyweaknet'
+
+VERSION = 'UNKNOW'
+try:
+    with open(SCRIPT_URI, 'r') as f:
+        m = re.search('VERSION[\ ]*\=[\ ]*\"([0-9\.]*)\"', f.read())
+        if not m:
+            raise Exception("Not found `VERSION` in script file")
+        VERSION = m.group(0).split('"')[1].strip()
+except IOError as e:
+    raise Exception("Not found the script file: " + SCRIPT_URI)
 
 if sys.argv[-1] == 'publish':
     os.system('python setup.py sdist upload')
