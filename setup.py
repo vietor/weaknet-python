@@ -6,7 +6,7 @@ import re
 import sys
 from setuptools import setup, find_packages
 
-SCRIPT_URI = 'bin/weaknet.py'
+SCRIPT_URI = 'weaknet.py'
 GITHUB_URL = 'https://github.com/vietor/pyweaknet'
 
 VERSION = 'UNKNOW'
@@ -21,7 +21,6 @@ except IOError as e:
 
 if sys.argv[-1] == 'publish':
     os.system('python setup.py sdist upload')
-    os.system('python setup.py bdist_wheel upload')
     sys.exit()
 
 setup(
@@ -34,12 +33,19 @@ setup(
     url=GITHUB_URL,
     download_url='{0}/tarball/{1}'.format(GITHUB_URL, VERSION),
     license='MIT',
-    scripts=['bin/weaknet.py'],
+    entry_points={
+        'console_scripts': [
+            'weaknet = weaknet:main'
+        ]
+    },
+    py_modules=['weaknet'],
     requires=[
         'python (>=2.6.0)',
     ],
     classifiers=[
         'Programming Language :: Python',
+        'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 3',
         'Development Status :: 5 - Production/Stable',
         'Natural Language :: English',
         'Environment :: Console',

@@ -3,7 +3,7 @@
 from __future__ import division, print_function, with_statement
 
 
-VERSION = "1.7.3"
+VERSION = "1.7.4"
 
 DEFAULT_LOCAL_PORT = 51080
 DEFAULT_REMOTE_PORT = 58080
@@ -2041,7 +2041,7 @@ class LocalService(TCPService):
 ################################################
 
 
-def main(options):
+def execute(options):
     if options.role == "local":
         relay = TCPController(options, LocalService)
     else:
@@ -2140,7 +2140,7 @@ def daemonize():
     os.dup2(wnull.fileno(), sys.stderr.fileno())
 
 
-if __name__ == '__main__':
+def main():
     algorithm_choices = ["easy"]
     for method in secret_method_supported.keys():
         algorithm_choices.append(method)
@@ -2242,7 +2242,10 @@ if __name__ == '__main__':
             options.bind_port = DEFAULT_REMOTE_PORT
 
     if not options.daemon or os.name != "posix":
-        main(options)
+        execute(options)
     else:
         daemonize()
-        main(options)
+        execute(options)
+
+if __name__ == '__main__':
+    main()

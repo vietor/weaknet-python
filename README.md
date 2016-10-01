@@ -18,8 +18,8 @@ pip install weaknet
 
 ``` sh
 cd <you execute path>
-curl -O https://raw.githubusercontent.com/vietor/pyweaknet/master/bin/weaknet.py
-chmod +x weaknet.py
+curl https://raw.githubusercontent.com/vietor/pyweaknet/master/weaknet.py -o weaknet
+chmod +x weaknet
 ```
 
 # Usage
@@ -35,7 +35,7 @@ Recommend:
 
 More discritption:
 ```sh
-weaknet.py --help
+weaknet --help
 ```
 
 ## Role: remote
