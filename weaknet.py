@@ -2145,7 +2145,8 @@ def main():
     for method in secret_method_supported.keys():
         algorithm_choices.append(method)
 
-    parser = OptionParser(version="%prog " + VERSION)
+    parser = OptionParser("%prog [options]", version=VERSION,
+                          description="Tiny safety network proxy tool")
     role_choices = ["remote", "local"]
     parser.add_option("-r", "--role",
                       type="choice", dest="role",

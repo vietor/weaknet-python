@@ -3,6 +3,7 @@
 from __future__ import print_function, with_statement
 
 import re
+import os
 import sys
 from setuptools import setup, find_packages
 
@@ -26,8 +27,8 @@ if sys.argv[-1] == 'publish':
 setup(
     name='weaknet',
     version=VERSION,
-    keywords='weaknet, shadowsocks, ss',
-    description='A limited network transport tool',
+    keywords='proxy, weaknet, shadowsocks, ss',
+    description='Tiny safety network proxy tools',
     author='Vietor Liu',
     author_email='vietor.liu@gmail.com',
     url=GITHUB_URL,
