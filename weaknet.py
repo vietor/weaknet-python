@@ -2198,7 +2198,7 @@ def main():
     if len(sys.argv) > 1:
         sys_argv = sys.argv
     else:
-        sys_argv = [sys.argv[0], "--version"]
+        sys_argv = [sys.argv[0], "--help"]
 
     (options, args) = parser.parse_args(sys_argv)
 
