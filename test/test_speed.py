@@ -42,6 +42,5 @@ SOURCE_BUF = randomBytes(128 * 1024)
 ALGORITHM_KEYS = sorted(secret_method_supported.keys())
 
 stressTestAlgorithm("none", SECRET_KEY, COUNTS_MAX, SOURCE_BUF)
-stressTestAlgorithm("xor", SECRET_KEY, COUNTS_MAX, SOURCE_BUF)
 for key in ALGORITHM_KEYS:
     stressTestAlgorithm(key, SECRET_KEY, COUNTS_MAX, SOURCE_BUF)
