@@ -2087,13 +2087,13 @@ def direct_main():
                       type="int", dest="workers", default=2,
                       help="start worker count (Unix/Linux) [default: %default]")
     parser.add_option("-B", "--bufsize",
-                      type="int", dest="bufsize", default=32,
+                      type="int", dest="bufsize", default=24,
                       help="network buffer size (KB) [default: %default]")
     parser.add_option("-D", "--dns-bufsize",
                       type="int", dest="dns_bufsize", default=4,
                       help="DNS buffer size (KB) [default: %default]")
     parser.add_option("-K", "--block-bufsize",
-                      type="int", dest="block_bufsize", default=0,
+                      type="int", dest="block_bufsize", default=8,
                       help="network block buffer size (KB) [default: %default]")
     parser.add_option("-d", "--daemon",
                       action="store_true", dest="daemon", default=False,
