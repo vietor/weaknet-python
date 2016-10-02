@@ -617,64 +617,6 @@ class SecretEngine(object):
         return self.decipher.update(buf)
 
 
-class SecretXor(object):
-
-    def __init__(self, secret):
-        buff = sha512(secret)
-        self._epos = 0
-        self._dpos = 0
-        self._bbuff = bytearray(buff)
-        self._bsize = len(self._bbuff)
-        self._qsize = int(self._bsize / 8)
-        self._qbuff = struct.unpack("<" + str(self._qsize) + "Q", buff)
-
-    def _xor(self, data, xpos):
-        pos = 0
-        size = len(data)
-        dest = bytearray(size)
-
-        if xpos > 0 and xpos % 8 != 0:
-            qcnt = 8 - (xpos % 8)
-            if qcnt <= size:
-                pos += qcnt
-                orig = bytearray(data[:qcnt])
-                for i in range(qcnt):
-                    dest[i] = orig[i] ^ self._bbuff[xpos]
-                    xpos = (xpos + 1) % self._bsize
-
-        if pos < size and size - pos > 8:
-            qpos = int(xpos / 8)
-            qcnt = int((size - pos) / 8)
-            fmt = "<" + str(qcnt) + "Q"
-            xdata = []
-            qdata = struct.unpack_from(fmt, data, pos)
-            for i in range(qcnt):
-                kq = self._qbuff[qpos]
-                qpos = (qpos + 1) % self._qsize
-                xdata.append(qdata[i] ^ kq)
-
-            struct.pack_into(fmt, dest, pos, *xdata)
-            pos += qcnt * 8
-            xpos = qpos * 8
-
-        if pos < size:
-            qcnt = size - pos
-            orig = bytearray(data[pos:])
-            for i in range(qcnt):
-                dest[pos + i] = orig[i] ^ self._bbuff[xpos]
-                xpos = (xpos + 1) % self._bsize
-
-        return (bytes(dest), xpos)
-
-    def encrypt(self, data):
-        dest, self._epos = self._xor(data, self._epos)
-        return dest
-
-    def decrypt(self, data):
-        dest, self._dpos = self._xor(data, self._dpos)
-        return dest
-
-
 class SecretNone(object):
 
     def __init__(self, secret):
@@ -688,8 +630,6 @@ class SecretNone(object):
 
 
 def make_secret(algorithm, secret):
-    if algorithm == "xor":
-        return SecretXor(secret)
     if algorithm == "none":
         return SecretNone(secret)
     if not secret_method_supported.get(algorithm):
@@ -2142,7 +2082,7 @@ def daemonize():
 
 
 def direct_main():
-    algorithm_choices = ["none", "xor"]
+    algorithm_choices = ["none"]
     for method in sorted(secret_method_supported.keys()):
         algorithm_choices.append(method)
 
