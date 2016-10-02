@@ -472,9 +472,11 @@ def Rrc4md5Crypto(alg, key, iv, op, key_as_bytes=0, d=None, salt=None,
 
 
 LIBSODIUM_BLOCK_SIZE = 64
-LIBSODIUM_FIRST_SIZE = 2048
+LIBSODIUM_FIRST_SIZE = 8192
 libsodium = find_library('sodium', 'crypto_stream_salsa20_xor_ic')
 if libsodium:
+    libsodium_buf_size = LIBSODIUM_FIRST_SIZE
+    libsodium_buf = create_string_buffer(libsodium_buf_size)
     libsodium.crypto_stream_salsa20_xor_ic.restype = c_int
     libsodium.crypto_stream_salsa20_xor_ic.argtypes = (c_void_p, c_char_p,
                                                        c_ulonglong,
@@ -490,6 +492,7 @@ if libsodium:
 class SodiumCrypto(object):
 
     def __init__(self, cipher_name, key, iv, op):
+        self.nbytes = 0
         self.key = key
         self.iv = iv
         self.key_ptr = c_char_p(key)
@@ -501,24 +504,23 @@ class SodiumCrypto(object):
         else:
             raise Exception('cipher %s not enabled in libsodium' % cipher_name)
 
-        self.nbytes = 0
-        self.buf_size = LIBSODIUM_FIRST_SIZE
-        self.buf = create_string_buffer(self.buf_size)
-
     def update(self, data):
-        l = len(data)
+        global libsodium_buf, libsodium_buf_size
+
+        size = len(data)
         padding = self.nbytes % LIBSODIUM_BLOCK_SIZE
-        if self.buf_size < padding + l:
-            self.buf_size = (padding + l) * 2
-            self.buf = create_string_buffer(self.buf_size)
+        padding_size = padding + size
+        if libsodium_buf_size < padding_size:
+            libsodium_buf_size = int(padding_size * 2.5)
+            libsodium_buf = create_string_buffer(libsodium_buf_size)
 
         if padding:
             data = (b'\0' * padding) + data
 
-        self.cipher(byref(self.buf), c_char_p(data), padding + l,
+        self.cipher(byref(libsodium_buf), c_char_p(data), padding_size,
                     self.iv_ptr, int(self.nbytes / LIBSODIUM_BLOCK_SIZE), self.key_ptr)
-        self.nbytes += l
-        return self.buf.raw[padding:padding + l]
+        self.nbytes += size
+        return libsodium_buf.raw[padding:padding_size]
 
 secret_cached_keys = {}
 secret_method_supported = {}
