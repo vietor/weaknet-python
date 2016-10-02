@@ -2146,7 +2146,7 @@ def daemonize():
 
 def main():
     algorithm_choices = ["none", "xor"]
-    for method in secret_method_supported.keys():
+    for method in sorted(secret_method_supported.keys()):
         algorithm_choices.append(method)
 
     parser = OptionParser("%prog [options]", version=VERSION,
@@ -2163,7 +2163,7 @@ def main():
                       type="int", dest="bind_port", default="0",
                       help="net port for bind")
     parser.add_option("-m", "--algorithm",
-                      type="choice", dest="algorithm", default="xor",
+                      type="choice", dest="algorithm", default="none",
                       choices=algorithm_choices,
                       help="algorithm for transport: " + ", ".join(algorithm_choices) + " [default: %default]")
     parser.add_option("-s", "--secret",
@@ -2207,7 +2207,8 @@ def main():
     (options, args) = parser.parse_args(sys_argv)
 
     if not options.secret:
-        raise Exception("lost options: -s or --secret")
+        if options.algorithm != 'none':
+            raise Exception("lost options: -s or --secret")
     if options.role == "local":
         if options.bind_port == 0:
             options.bind_port = DEFAULT_LOCAL_PORT
