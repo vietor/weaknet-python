@@ -528,22 +528,15 @@ if libcrypto:
         'aes-128-ofb': (16, 16, OpenSSLCrypto),
         'aes-192-ofb': (24, 16, OpenSSLCrypto),
         'aes-256-ofb': (32, 16, OpenSSLCrypto),
-        'aes-128-ctr': (16, 16, OpenSSLCrypto),
-        'aes-192-ctr': (24, 16, OpenSSLCrypto),
-        'aes-256-ctr': (32, 16, OpenSSLCrypto),
         'aes-128-cfb8': (16, 16, OpenSSLCrypto),
         'aes-192-cfb8': (24, 16, OpenSSLCrypto),
         'aes-256-cfb8': (32, 16, OpenSSLCrypto),
         'aes-128-cfb1': (16, 16, OpenSSLCrypto),
         'aes-192-cfb1': (24, 16, OpenSSLCrypto),
         'aes-256-cfb1': (32, 16, OpenSSLCrypto),
-        'camellia-128-cfb': (16, 16, OpenSSLCrypto),
-        'camellia-192-cfb': (24, 16, OpenSSLCrypto),
-        'camellia-256-cfb': (32, 16, OpenSSLCrypto),
         'des-cfb': (8, 8, OpenSSLCrypto),
         'bf-cfb': (16, 8, OpenSSLCrypto),
         'cast5-cfb': (16, 8, OpenSSLCrypto),
-        'idea-cfb': (16, 8, OpenSSLCrypto),
         'rc2-cfb': (16, 8, OpenSSLCrypto),
         'rc4': (16, 0, OpenSSLCrypto),
         'rc4-md5': (16, 16, Rrc4md5Crypto),
@@ -630,7 +623,7 @@ class SecretEngine(object):
         return self.decipher.update(buf)
 
 
-class SecretEasy(object):
+class SecretXor(object):
 
     def __init__(self, secret):
         buff = sha512(secret)
@@ -689,8 +682,8 @@ class SecretEasy(object):
 
 
 def make_secret(algorithm, secret):
-    if algorithm == "easy":
-        return SecretEasy(secret)
+    if algorithm == "xor":
+        return SecretXor(secret)
     if not secret_method_supported.get(algorithm):
         raise Exception("algorithm unsupport")
     return SecretEngine(secret, algorithm)
@@ -2141,7 +2134,7 @@ def daemonize():
 
 
 def main():
-    algorithm_choices = ["easy"]
+    algorithm_choices = ["xor"]
     for method in secret_method_supported.keys():
         algorithm_choices.append(method)
 
@@ -2159,7 +2152,7 @@ def main():
                       type="int", dest="bind_port", default="0",
                       help="net port for bind")
     parser.add_option("-m", "--algorithm",
-                      type="choice", dest="algorithm", default="easy",
+                      type="choice", dest="algorithm", default="xor",
                       choices=algorithm_choices,
                       help="algorithm for transport: " + ", ".join(algorithm_choices) + " [default: %default]")
     parser.add_option("-s", "--secret",
