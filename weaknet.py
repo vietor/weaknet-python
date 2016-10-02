@@ -470,11 +470,11 @@ def Rrc4md5Crypto(alg, key, iv, op, key_as_bytes=0, d=None, salt=None,
                   i=1, padding=1):
     return OpenSSLCrypto(b'rc4', md5(key, iv), b'', op)
 
+
+LIBSODIUM_BLOCK_SIZE = 64
+LIBSODIUM_FIRST_SIZE = 2048
 libsodium = find_library('sodium', 'crypto_stream_salsa20_xor_ic')
 if libsodium:
-    libsodium_block_size = 64
-    libsodium_buf_size = 2048
-    libsodium_buf = create_string_buffer(libsodium_buf_size)
     libsodium.crypto_stream_salsa20_xor_ic.restype = c_int
     libsodium.crypto_stream_salsa20_xor_ic.argtypes = (c_void_p, c_char_p,
                                                        c_ulonglong,
@@ -490,7 +490,6 @@ if libsodium:
 class SodiumCrypto(object):
 
     def __init__(self, cipher_name, key, iv, op):
-        self.nbytes = 0
         self.key = key
         self.iv = iv
         self.key_ptr = c_char_p(key)
@@ -502,21 +501,24 @@ class SodiumCrypto(object):
         else:
             raise Exception('cipher %s not enabled in libsodium' % cipher_name)
 
+        self.nbytes = 0
+        self.buf_size = LIBSODIUM_FIRST_SIZE
+        self.buf = create_string_buffer(self.buf_size)
+
     def update(self, data):
-        global libsodium_buf, libsodium_buf_size
         l = len(data)
-        padding = self.nbytes % libsodium_block_size
-        if libsodium_buf_size < padding + l:
-            libsodium_buf_size = (padding + l) * 2
-            libsodium_buf = create_string_buffer(libsodium_buf_size)
+        padding = self.nbytes % LIBSODIUM_BLOCK_SIZE
+        if self.buf_size < padding + l:
+            self.buf_size = (padding + l) * 2
+            self.buf = create_string_buffer(self.buf_size)
 
         if padding:
             data = (b'\0' * padding) + data
 
+        self.cipher(byref(self.buf), c_char_p(data), padding + l,
+                    self.iv_ptr, int(self.nbytes / LIBSODIUM_BLOCK_SIZE), self.key_ptr)
         self.nbytes += l
-        self.cipher(byref(libsodium_buf), c_char_p(data), padding + l,
-                    self.iv_ptr, int(self.nbytes / libsodium_block_size), self.key_ptr)
-        return libsodium_buf.raw[padding:padding + l]
+        return self.buf.raw[padding:padding + l]
 
 secret_cached_keys = {}
 secret_method_supported = {}
