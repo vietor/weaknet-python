@@ -528,9 +528,6 @@ if libcrypto:
         'aes-128-ofb': (16, 16, OpenSSLCrypto),
         'aes-192-ofb': (24, 16, OpenSSLCrypto),
         'aes-256-ofb': (32, 16, OpenSSLCrypto),
-        'aes-128-cfb8': (16, 16, OpenSSLCrypto),
-        'aes-192-cfb8': (24, 16, OpenSSLCrypto),
-        'aes-256-cfb8': (32, 16, OpenSSLCrypto),
         'des-cfb': (8, 8, OpenSSLCrypto),
         'bf-cfb': (16, 8, OpenSSLCrypto),
         'cast5-cfb': (16, 8, OpenSSLCrypto),
@@ -2144,7 +2141,7 @@ def daemonize():
     os.dup2(wnull.fileno(), sys.stderr.fileno())
 
 
-def main():
+def direct_main():
     algorithm_choices = ["none", "xor"]
     for method in sorted(secret_method_supported.keys()):
         algorithm_choices.append(method)
@@ -2252,6 +2249,13 @@ def main():
     else:
         daemonize()
         execute(options)
+
+
+def main():
+    try:
+        direct_main()
+    except Exception as e:
+        print(e)
 
 if __name__ == '__main__':
     main()
