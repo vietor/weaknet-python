@@ -623,9 +623,10 @@ class SecretEngine(object):
 class SecretXor(object):
 
     def __init__(self, secret):
+        buff = sha512(secret)
         self._epos = 0
         self._dpos = 0
-        self._bbuff = bytearray(sha512(secret))
+        self._bbuff = bytearray(buff)
         self._bsize = len(self._bbuff)
         self._qsize = int(self._bsize / 8)
         self._qbuff = struct.unpack("<" + str(self._qsize) + "Q", buff)
