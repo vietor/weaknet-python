@@ -617,26 +617,6 @@ class SecretEngine(object):
         return self.decipher.update(buf)
 
 
-class SecretNone(object):
-
-    def __init__(self, secret):
-        pass
-
-    def encrypt(self, data):
-        return data
-
-    def decrypt(self, data):
-        return data
-
-
-def make_secret(algorithm, secret):
-    if algorithm == "none":
-        return SecretNone(secret)
-    if not secret_method_supported.get(algorithm):
-        raise Exception("algorithm unsupport")
-    return SecretEngine(secret, algorithm)
-
-
 ################################################
 import socket
 import struct
@@ -1478,7 +1458,7 @@ class RemoteService(TCPService):
 
     def __init__(self, controller, conn, options):
         self._data_to_cache = []
-        self._secret = make_secret(options.algorithm, options.secret)
+        self._secret = SecretEngine(options.algorithm, options.secret)
         super(RemoteService, self).__init__(controller, conn, options)
 
     def handle_read(self, ssock, data):
@@ -1754,7 +1734,7 @@ class LocalService(TCPService):
         self._remote_addr = options.remote_addr
         self._remote_port = options.remote_port
         self._shadowsocks = options.shadowsocks
-        self._secret = make_secret(options.algorithm, options.secret)
+        self._secret = SecretEngine(options.algorithm, options.secret)
         super(LocalService, self).__init__(controller, conn, options)
 
     def handle_read(self, ssock, data):
@@ -2082,10 +2062,7 @@ def daemonize():
 
 
 def direct_main():
-    algorithm_choices = ["none"]
-    for method in sorted(secret_method_supported.keys()):
-        algorithm_choices.append(method)
-
+    algorithmes = sorted(secret_method_supported.keys())
     parser = OptionParser("%prog [options]", version=VERSION,
                           description="Tiny safety network proxy tool")
     role_choices = ["remote", "local"]
@@ -2100,9 +2077,9 @@ def direct_main():
                       type="int", dest="bind_port", default="0",
                       help="net port for bind")
     parser.add_option("-m", "--algorithm",
-                      type="choice", dest="algorithm", default="none",
-                      choices=algorithm_choices,
-                      help="algorithm for transport: " + ", ".join(algorithm_choices) + " [default: %default]")
+                      type="choice", dest="algorithm", default="rc4-md5",
+                      choices=algorithmes,
+                      help="algorithm for transport: " + ", ".join(algorithmes) + " [default: %default]")
     parser.add_option("-s", "--secret",
                       dest="secret",
                       help="secret for transport")
@@ -2144,8 +2121,7 @@ def direct_main():
     (options, args) = parser.parse_args(sys_argv)
 
     if not options.secret:
-        if options.algorithm != 'none':
-            raise Exception("lost options: -s or --secret")
+        raise Exception("lost options: -s or --secret")
     if options.role == "local":
         if options.bind_port == 0:
             options.bind_port = DEFAULT_LOCAL_PORT
@@ -2193,6 +2169,8 @@ def direct_main():
 
 def main():
     try:
+        if not libcrypto:
+            raise Exception("Terminate, Can't load the OpenSSL's library!")
         direct_main()
     except Exception as e:
         print(e)
