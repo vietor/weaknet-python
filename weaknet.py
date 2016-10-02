@@ -2087,7 +2087,7 @@ def direct_main():
                       type="int", dest="workers", default=2,
                       help="start worker count (Unix/Linux) [default: %default]")
     parser.add_option("-B", "--bufsize",
-                      type="int", dest="bufsize", default=24,
+                      type="int", dest="bufsize", default=32,
                       help="network buffer size (KB) [default: %default]")
     parser.add_option("-D", "--dns-bufsize",
                       type="int", dest="dns_bufsize", default=4,
