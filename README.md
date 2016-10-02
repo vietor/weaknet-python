@@ -30,8 +30,8 @@ Require:
 > python >= 2.6, compatible 3.x
 
 Recommend:
-> openssl for most crypto.  
-> sodium for chacha20 & salsa20
+> sodium for chacha20 & salsa20.  
+> openssl for aes-192-cfb & aes-256-cfb and more.
 
 More discritption:
 ```sh
