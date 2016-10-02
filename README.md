@@ -27,11 +27,11 @@ chmod +x weaknet
 Just *onefile* for provider all service.
 
 Require:
-> python >= 2.6, compatible 3.x
+> python >= 2.6, compatible 3.x  
+> The OpenSSL library
 
 Recommend:
 > sodium for chacha20 & salsa20.  
-> openssl for aes-192-cfb & aes-256-cfb and more.
 
 More discritption:
 ```sh
