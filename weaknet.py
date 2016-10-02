@@ -623,10 +623,9 @@ class SecretEngine(object):
 class SecretXor(object):
 
     def __init__(self, secret):
-        buff = sha512(secret)
         self._epos = 0
         self._dpos = 0
-        self._bbuff = bytearray(buff)
+        self._bbuff = bytearray(sha512(secret))
         self._bsize = len(self._bbuff)
         self._qsize = int(self._bsize / 8)
         self._qbuff = struct.unpack("<" + str(self._qsize) + "Q", buff)
@@ -678,9 +677,23 @@ class SecretXor(object):
         return dest
 
 
+class SecretNone(object):
+
+    def __init__(self, secret):
+        pass
+
+    def encrypt(self, data):
+        return data
+
+    def decrypt(self, data):
+        return data
+
+
 def make_secret(algorithm, secret):
     if algorithm == "xor":
         return SecretXor(secret)
+    if algorithm == "none":
+        return SecretNone(secret)
     if not secret_method_supported.get(algorithm):
         raise Exception("algorithm unsupport")
     return SecretEngine(secret, algorithm)
@@ -2131,7 +2144,7 @@ def daemonize():
 
 
 def main():
-    algorithm_choices = ["xor"]
+    algorithm_choices = ["none", "xor"]
     for method in secret_method_supported.keys():
         algorithm_choices.append(method)
 
