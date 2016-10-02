@@ -567,7 +567,7 @@ def EVP_BytesToKey(password, key_len, iv_len):
 
 class SecretEngine(object):
 
-    def __init__(self, key, method):
+    def __init__(self, method, key):
         self.key = xbytes(key)
         self.method = method
         self.iv = None

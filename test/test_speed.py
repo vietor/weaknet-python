@@ -3,6 +3,7 @@ from __future__ import division, print_function, with_statement
 import os
 import sys
 
+sys.path.append(os.path.abspath("./"))
 sys.path.append(os.path.abspath("../"))
 
 import time
@@ -16,8 +17,8 @@ def randomBytes(size):
 
 
 def testAlgorithm(algorithm, secret, source):
-    encrypt = make_secret(algorithm, secret).encrypt
-    decrypt = make_secret(algorithm, secret).decrypt
+    encrypt = SecretEngine(algorithm, secret).encrypt
+    decrypt = SecretEngine(algorithm, secret).decrypt
     edata = encrypt(source)
     ddata = decrypt(edata)
     print(algorithm + " " + str(len(edata) - len(source)) +
@@ -26,8 +27,8 @@ def testAlgorithm(algorithm, secret, source):
 
 
 def stressTestAlgorithm(algorithm, secret, count, source):
-    encrypt = make_secret(algorithm, secret).encrypt
-    decrypt = make_secret(algorithm, secret).decrypt
+    encrypt = SecretEngine(algorithm, secret).encrypt
+    decrypt = SecretEngine(algorithm, secret).decrypt
     begin = time.time()
     for i in range(count):
         decrypt(encrypt(source))
