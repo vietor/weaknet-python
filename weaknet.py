@@ -582,15 +582,16 @@ if libcrypto:
         'aes-128-ofb': (16, 16, OpenSSLCrypto),
         'aes-192-ofb': (24, 16, OpenSSLCrypto),
         'aes-256-ofb': (32, 16, OpenSSLCrypto),
-        'des-cfb': (8, 8, OpenSSLCrypto),
         'bf-cfb': (16, 8, OpenSSLCrypto),
         'cast5-cfb': (16, 8, OpenSSLCrypto),
+        'des-cfb': (8, 8, OpenSSLCrypto),
         'rc2-cfb': (16, 8, OpenSSLCrypto),
         'rc4': (16, 0, OpenSSLCrypto),
         'rc4-md5': (16, 16, Rrc4md5Crypto),
         'seed-cfb': (16, 16, OpenSSLCrypto),
     })
     for key, value in {
+        'idea-cfb': (16, 8, OpenSSLCrypto),
         'aes-128-ctr': (16, 16, OpenSSLCrypto),
         'aes-192-ctr': (24, 16, OpenSSLCrypto),
         'aes-256-ctr': (32, 16, OpenSSLCrypto),
