@@ -528,8 +528,52 @@ class SodiumCrypto(object):
         self.nbytes += size
         return libsodium_buf.raw[padding:padding_size]
 
+
+import string
+if hasattr(string, 'maketrans'):
+    maketrans = string.maketrans
+    translate = string.translate
+else:
+    maketrans = bytes.maketrans
+    translate = bytes.translate
+
+
+cached_tables = {}
+
+
+def make_table(key):
+    a, b = struct.unpack('<QQ', md5(key))
+    table = maketrans(b'', b'')
+    table = [table[i: i + 1] for i in range(len(table))]
+    for i in range(1, 1024):
+        table.sort(key=lambda x: int(a % (ord(x) + i)))
+    return table
+
+
+def init_table(key):
+    if key not in cached_tables:
+        encrypt_table = b''.join(make_table(key))
+        decrypt_table = maketrans(encrypt_table, maketrans(b'', b''))
+        cached_tables[key] = [encrypt_table, decrypt_table]
+    return cached_tables[key]
+
+
+class TableCipher(object):
+
+    def __init__(self, cipher_name, key, iv, op):
+        self._encrypt_table, self._decrypt_table = init_table(key)
+        self._op = op
+
+    def update(self, data):
+        if self._op:
+            return translate(data, self._encrypt_table)
+        else:
+            return translate(data, self._decrypt_table)
+
 secret_cached_keys = {}
-secret_method_supported = {}
+secret_method_supported = {
+    'table': (0, 0, TableCipher)
+}
 if libcrypto:
     secret_method_supported.update({
         'aes-128-cfb': (16, 16, OpenSSLCrypto),
@@ -2098,7 +2142,7 @@ def direct_main():
                       type="int", dest="bind_port", default="0",
                       help="net port for bind")
     parser.add_option("-m", "--algorithm",
-                      type="choice", dest="algorithm", default="rc4-md5",
+                      type="choice", dest="algorithm", default="table",
                       choices=algorithmes,
                       help="algorithm for transport: " + ", ".join(algorithmes) + " [default: %default]")
     parser.add_option("-s", "--secret",
@@ -2190,8 +2234,6 @@ def direct_main():
 
 def main():
     try:
-        if not libcrypto:
-            raise Exception("Terminate, Can't load the OpenSSL's library!")
         direct_main()
     except Exception as e:
         print(e)
