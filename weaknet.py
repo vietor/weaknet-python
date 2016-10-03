@@ -421,8 +421,8 @@ if libcrypto:
 
 class OpenSSLCrypto(object):
 
-    def __init__(self, cipher_name, key, iv, op):
-        self._ctx = None
+    @staticmethod
+    def find_cipher(cipher_name):
         cipher_name = xbytes(cipher_name)
         cipher = libcrypto.EVP_get_cipherbyname(cipher_name)
         if not cipher:
@@ -432,6 +432,11 @@ class OpenSSLCrypto(object):
                 func_cipher.restype = c_void_p
                 cipher = func_cipher()
 
+        return cipher
+
+    def __init__(self, cipher_name, key, iv, op):
+        self._ctx = None
+        cipher = OpenSSLCrypto.find_cipher(cipher_name)
         if not cipher:
             raise Exception('cipher %s not found in libcrypto' % cipher_name)
         key_ptr = c_char_p(key)
@@ -447,14 +452,15 @@ class OpenSSLCrypto(object):
 
     def update(self, data):
         global libcrypto_buf, libcrypto_buf_size
+
+        size = len(data)
         cipher_out_len = c_long(0)
-        l = len(data)
-        if libcrypto_buf_size < l:
-            libcrypto_buf_size = l * 2
+        if libcrypto_buf_size < size:
+            libcrypto_buf_size = int(size * 2.5)
             libcrypto_buf = create_string_buffer(libcrypto_buf_size)
 
         libcrypto.EVP_CipherUpdate(self._ctx, byref(libcrypto_buf),
-                                   byref(cipher_out_len), c_char_p(data), l)
+                                   byref(cipher_out_len), c_char_p(data), size)
         return libcrypto_buf.raw[:cipher_out_len.value]
 
     def __del__(self):
@@ -540,6 +546,17 @@ if libcrypto:
         'rc4-md5': (16, 16, Rrc4md5Crypto),
         'seed-cfb': (16, 16, OpenSSLCrypto),
     })
+    for key, value in {
+        'aes-128-ctr': (16, 16, OpenSSLCrypto),
+        'aes-192-ctr': (24, 16, OpenSSLCrypto),
+        'aes-256-ctr': (32, 16, OpenSSLCrypto),
+        'camellia-128-cfb': (16, 16, OpenSSLCrypto),
+        'camellia-192-cfb': (24, 16, OpenSSLCrypto),
+        'camellia-256-cfb': (32, 16, OpenSSLCrypto),
+    }.items():
+        if OpenSSLCrypto.find_cipher(key):
+            secret_method_supported[key] = value
+
 if libsodium:
     secret_method_supported.update({
         'salsa20': (32, 8, SodiumCrypto),
