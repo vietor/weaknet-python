@@ -3,7 +3,7 @@
 from __future__ import division, print_function, with_statement
 
 
-VERSION = "1.7.7"
+VERSION = "1.7.8"
 
 DEFAULT_LOCAL_PORT = 51080
 DEFAULT_REMOTE_PORT = 58080
@@ -345,6 +345,9 @@ class EventLoop(object):
                         logging.error('loop timer: %s', e)
 
 ################################################
+
+BUFFER_FIRST_SIZE = 8192
+
 from ctypes import c_char_p, c_int, c_long, byref, create_string_buffer, c_void_p, c_ulonglong
 
 
@@ -405,7 +408,7 @@ def find_library(possible_lib_names, search_symbol):
 
 libcrypto = find_library(('crypto', 'eay32'), 'EVP_get_cipherbyname')
 if libcrypto:
-    libcrypto_buf_size = 2048
+    libcrypto_buf_size = BUFFER_FIRST_SIZE
     libcrypto_buf = create_string_buffer(libcrypto_buf_size)
     libcrypto.EVP_get_cipherbyname.restype = c_void_p
     libcrypto.EVP_CIPHER_CTX_new.restype = c_void_p
@@ -478,10 +481,10 @@ def Rrc4md5Crypto(alg, key, iv, op, key_as_bytes=0, d=None, salt=None,
 
 
 LIBSODIUM_BLOCK_SIZE = 64
-LIBSODIUM_FIRST_SIZE = 8192
+
 libsodium = find_library('sodium', 'crypto_stream_salsa20_xor_ic')
 if libsodium:
-    libsodium_buf_size = LIBSODIUM_FIRST_SIZE
+    libsodium_buf_size = BUFFER_FIRST_SIZE
     libsodium_buf = create_string_buffer(libsodium_buf_size)
     libsodium.crypto_stream_salsa20_xor_ic.restype = c_int
     libsodium.crypto_stream_salsa20_xor_ic.argtypes = (c_void_p, c_char_p,
