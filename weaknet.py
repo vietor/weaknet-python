@@ -1083,11 +1083,10 @@ class DNSController(LoopHandler):
 
 class TCPServiceSocket(object):
 
-    def __init__(self, loop, service, bufsize, block_bufsize):
+    def __init__(self, loop, service, bufsize):
         self._loop = loop
         self._service = service
         self._bufsize = bufsize * 1024
-        self._block_bufsize = block_bufsize * 1024
         self._sock = None
         self._status = STATUS_INIT
         self._traffic = TRAFFIC_IDLE
@@ -1201,8 +1200,7 @@ class TCPServiceSocket(object):
         else:
             self._cache(data)
             self._set_status(STATUS_WRITE, ACTION_ADD)
-            if self._nbytes_to_write >= self._block_bufsize:
-                self._update_traffic(TRAFFIC_BLOCK)
+            self._update_traffic(TRAFFIC_BLOCK)
 
     def _on_event_read(self):
         data = None
@@ -1273,10 +1271,10 @@ class TCPService(object):
         self._step = STEP_INIT
         self._controller._services[id(self)] = self
         self._source = TCPServiceSocket(controller._loop, self,
-                                        options.bufsize, options.block_bufsize)
+                                        options.bufsize)
         self._source_addr = NetAddr(conn[1])
         self._target = TCPServiceSocket(controller._loop, self,
-                                        options.bufsize, options.block_bufsize)
+                                        options.bufsize)
         self._target_addr = None
         self._address_wait = 0
         self._connect_wait = 0
@@ -2168,9 +2166,6 @@ def direct_main():
     parser.add_option("-D", "--dns-bufsize",
                       type="int", dest="dns_bufsize", default=4,
                       help="DNS buffer size (KB) [default: %default]")
-    parser.add_option("-K", "--block-bufsize",
-                      type="int", dest="block_bufsize", default=8,
-                      help="network block buffer size (KB) [default: %default]")
     parser.add_option("-d", "--daemon",
                       action="store_true", dest="daemon", default=False,
                       help="start as daemon process (Unix/Linux)")
