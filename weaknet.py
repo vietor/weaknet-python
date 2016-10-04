@@ -348,7 +348,7 @@ class EventLoop(object):
 
 BUFFER_FIRST_SIZE = 8192
 
-from ctypes import c_char_p, c_int, c_long, byref, create_string_buffer, c_void_p, c_ulonglong
+from ctypes import c_char_p, c_int, c_ulong, c_long, byref, create_string_buffer, c_void_p, c_ulonglong
 
 
 def find_library(possible_lib_names, search_symbol):
@@ -480,8 +480,6 @@ def Rrc4md5Crypto(alg, key, iv, op, key_as_bytes=0, d=None, salt=None,
     return OpenSSLCrypto(b'rc4', md5(key, iv), b'', op)
 
 
-LIBSODIUM_BLOCK_SIZE = 64
-
 libsodium = find_library('sodium', 'crypto_stream_salsa20_xor_ic')
 if libsodium:
     libsodium_buf_size = BUFFER_FIRST_SIZE
@@ -496,20 +494,28 @@ if libsodium:
                                                         c_ulonglong,
                                                         c_char_p, c_ulonglong,
                                                         c_char_p)
+    libsodium.crypto_stream_chacha20_ietf_xor_ic.restype = c_int
+    libsodium.crypto_stream_chacha20_ietf_xor_ic.argtypes = (c_void_p, c_char_p,
+                                                             c_ulonglong,
+                                                             c_char_p, c_ulong,
+                                                             c_char_p)
 
 
 class SodiumCrypto(object):
 
     def __init__(self, cipher_name, key, iv, op):
-        self.nbytes = 0
         self.key = key
         self.iv = iv
         self.key_ptr = c_char_p(key)
         self.iv_ptr = c_char_p(iv)
+        self.nbytes = 0
+        self.block_size = 64
         if cipher_name == 'salsa20':
             self.cipher = libsodium.crypto_stream_salsa20_xor_ic
         elif cipher_name == 'chacha20':
             self.cipher = libsodium.crypto_stream_chacha20_xor_ic
+        elif cipher_name == 'chacha20-ietf':
+            self.cipher = libsodium.crypto_stream_chacha20_ietf_xor_ic
         else:
             raise Exception('cipher %s not enabled in libsodium' % cipher_name)
 
@@ -517,7 +523,7 @@ class SodiumCrypto(object):
         global libsodium_buf, libsodium_buf_size
 
         size = len(data)
-        padding = self.nbytes % LIBSODIUM_BLOCK_SIZE
+        padding = self.nbytes % self.block_size
         padding_size = padding + size
         if libsodium_buf_size < padding_size:
             libsodium_buf_size = int(padding_size * 2.5)
@@ -527,7 +533,7 @@ class SodiumCrypto(object):
             data = (b'\0' * padding) + data
 
         self.cipher(byref(libsodium_buf), c_char_p(data), padding_size,
-                    self.iv_ptr, int(self.nbytes / LIBSODIUM_BLOCK_SIZE), self.key_ptr)
+                    self.iv_ptr, int(self.nbytes / self.block_size), self.key_ptr)
         self.nbytes += size
         return libsodium_buf.raw[padding:padding_size]
 
@@ -609,6 +615,7 @@ if libsodium:
     secret_method_supported.update({
         'salsa20': (32, 8, SodiumCrypto),
         'chacha20': (32, 8, SodiumCrypto),
+        'chacha20-ietf': (32, 12, SodiumCrypto),
     })
 
 
