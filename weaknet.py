@@ -426,8 +426,7 @@ class OpenSSLCrypto(object):
 
     @staticmethod
     def find_cipher(cipher_name):
-        cipher_name = xbytes(cipher_name)
-        cipher = libcrypto.EVP_get_cipherbyname(cipher_name)
+        cipher = libcrypto.EVP_get_cipherbyname(xbytes(cipher_name))
         if not cipher:
             func_name = xstr('EVP_' + cipher_name.replace('-', '_'))
             func_cipher = getattr(libcrypto, func_name, None)
