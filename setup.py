@@ -8,7 +8,7 @@ import sys
 from setuptools import setup, find_packages
 
 SCRIPT_URI = 'weaknet.py'
-GITHUB_URL = 'https://github.com/vietor/pyweaknet'
+GITHUB_URL = 'https://github.com/vietor/weaknet-python'
 
 VERSION = 'UNKNOW'
 try:

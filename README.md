@@ -2,7 +2,7 @@ pyweaknet
 ========
 
 [![PYPI release](https://img.shields.io/pypi/v/weaknet.svg)](https://pypi.python.org/pypi/weaknet)
-[![License MIT](https://img.shields.io/github/license/vietor/pyweaknet.svg)](http://opensource.org/licenses/MIT)
+[![License MIT](https://img.shields.io/github/license/vietor/weaknet-python.svg)](http://opensource.org/licenses/MIT)
 
 A limited network transport tool in PYTHON.
 
@@ -18,7 +18,7 @@ pip install weaknet
 
 ``` sh
 cd <you execute path>
-curl https://raw.githubusercontent.com/vietor/pyweaknet/master/weaknet.py -o weaknet
+curl https://raw.githubusercontent.com/vietor/weaknet-python/master/weaknet.py -o weaknet
 chmod +x weaknet
 ```
 
