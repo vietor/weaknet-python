@@ -57,10 +57,10 @@ Direct usage.
 Direct usage.
 
 ### SOCKS5
-Direct usage. Unsupport authentication.
+Direct usage. No implementaion authentication.
 
 ### HTTP PROXY
-Direct usage. Unsupport authentication.
+Direct usage. No implementaion authentication.
 
 ### AUTO PROXY
 Usage like "http://127.0.0.1:51080/proxy.pac". Unsupport authentication.
