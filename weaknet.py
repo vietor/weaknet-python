@@ -595,8 +595,7 @@ if libcrypto:
         'des-cfb': (8, 8, OpenSSLCrypto),
         'rc2-cfb': (16, 8, OpenSSLCrypto),
         'rc4': (16, 0, OpenSSLCrypto),
-        'rc4-md5': (16, 16, Rrc4md5Crypto),
-        'seed-cfb': (16, 16, OpenSSLCrypto),
+        'rc4-md5': (16, 16, Rrc4md5Crypto)
     })
     for key, value in {
         'idea-cfb': (16, 8, OpenSSLCrypto),
