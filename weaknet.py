@@ -87,8 +87,12 @@ logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(message)s")
 import collections
 from collections import defaultdict
 
+if not hasattr(collections, 'abc'):
+    MutableMapping = collections.MutableMapping
+else:
+    MutableMapping = collections.abc.MutableMapping
 
-class LRUCache(collections.MutableMapping):
+class LRUCache(MutableMapping):
 
     def __init__(self, timeout=60, callback=None, *args, **kwargs):
         self._timeout = timeout
@@ -416,7 +420,12 @@ if libcrypto:
                                             c_char_p, c_char_p, c_char_p, c_int)
     libcrypto.EVP_CipherUpdate.argtypes = (c_void_p, c_void_p,
                                            c_void_p, c_char_p, c_int)
-    libcrypto.EVP_CIPHER_CTX_cleanup.argtypes = (c_void_p,)
+
+    if hasattr(libcrypto, 'EVP_CIPHER_CTX_reset'):
+        libcrypto.EVP_CIPHER_CTX_reset.argtypes = (c_void_p,)
+    else:
+        libcrypto.EVP_CIPHER_CTX_cleanup.argtypes = (c_void_p,)
+
     libcrypto.EVP_CIPHER_CTX_free.argtypes = (c_void_p,)
     if hasattr(libcrypto, 'OpenSSL_add_all_ciphers'):
         libcrypto.OpenSSL_add_all_ciphers()
@@ -470,7 +479,11 @@ class OpenSSLCrypto(object):
 
     def clean(self):
         if self._ctx:
-            libcrypto.EVP_CIPHER_CTX_cleanup(self._ctx)
+            if hasattr(libcrypto, 'EVP_CIPHER_CTX_reset'):
+                libcrypto.EVP_CIPHER_CTX_reset(self._ctx)
+            else:
+                libcrypto.EVP_CIPHER_CTX_cleanup(self._ctx)
+
             libcrypto.EVP_CIPHER_CTX_free(self._ctx)
 
 
@@ -598,13 +611,13 @@ if libcrypto:
         'rc4-md5': (16, 16, Rrc4md5Crypto)
     })
     for key, value in {
-        'idea-cfb': (16, 8, OpenSSLCrypto),
-        'aes-128-ctr': (16, 16, OpenSSLCrypto),
-        'aes-192-ctr': (24, 16, OpenSSLCrypto),
-        'aes-256-ctr': (32, 16, OpenSSLCrypto),
-        'camellia-128-cfb': (16, 16, OpenSSLCrypto),
-        'camellia-192-cfb': (24, 16, OpenSSLCrypto),
-        'camellia-256-cfb': (32, 16, OpenSSLCrypto),
+            'idea-cfb': (16, 8, OpenSSLCrypto),
+            'aes-128-ctr': (16, 16, OpenSSLCrypto),
+            'aes-192-ctr': (24, 16, OpenSSLCrypto),
+            'aes-256-ctr': (32, 16, OpenSSLCrypto),
+            'camellia-128-cfb': (16, 16, OpenSSLCrypto),
+            'camellia-192-cfb': (24, 16, OpenSSLCrypto),
+            'camellia-256-cfb': (32, 16, OpenSSLCrypto),
     }.items():
         if OpenSSLCrypto.find_cipher(key):
             secret_method_supported[key] = value
